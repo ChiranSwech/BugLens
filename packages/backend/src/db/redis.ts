@@ -1,13 +1,42 @@
 import { Redis } from 'ioredis';
 import { config } from '../config.js';
 
-export const redis = new Redis(config.REDIS_URL, {
-  maxRetriesPerRequest: 3,
-  enableReadyCheck: true,
-  lazyConnect: false,
-  // Reconnect with exponential backoff (cap at 30s)
-  retryStrategy: (times: number) => Math.min(times * 200, 30_000),
-});
+function createRedisClient(): Redis {
+  const urlStr = config.REDIS_URL;
+  try {
+    const parsed = new URL(urlStr);
+    const isTls = parsed.protocol === 'rediss:';
+    
+    const options: any = {
+      host: parsed.hostname,
+      port: Number(parsed.port) || 6379,
+      username: parsed.username || undefined,
+      password: parsed.password || undefined,
+      maxRetriesPerRequest: 3,
+      enableReadyCheck: true,
+      lazyConnect: false,
+      retryStrategy: (times: number) => Math.min(times * 200, 30_000),
+    };
+    
+    if (isTls) {
+      options.tls = {
+        rejectUnauthorized: false,
+      };
+    }
+    
+    return new Redis(options);
+  } catch (e) {
+    // Fallback to simple string-based initialization
+    return new Redis(urlStr, {
+      maxRetriesPerRequest: 3,
+      enableReadyCheck: true,
+      lazyConnect: false,
+      retryStrategy: (times: number) => Math.min(times * 200, 30_000),
+    });
+  }
+}
+
+export const redis = createRedisClient();
 
 redis.on('error', (err: Error) => {
   console.error('[REDIS] Connection error:', err.message);
