@@ -20,6 +20,7 @@ function createRedisClient(): Redis {
     
     if (isTls) {
       options.tls = {
+        servername: parsed.hostname,
         rejectUnauthorized: false,
       };
     }
