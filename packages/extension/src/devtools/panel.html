@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BugBuddy Network Monitor</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Inter, -apple-system, sans-serif; background: #0f0f12; color: #f1f0ff; font-size: 13px; height: 100vh; display: flex; flex-direction: column; }
+
+    /* Header */
+    .header { display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: #1a1a22; border-bottom: 1px solid #2e2e3a; flex-shrink: 0; }
+    .header-brand { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 14px; color: #818cf8; }
+    .header-controls { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #374151; }
+    .status-dot.recording { background: #ef4444; animation: pulse 1.2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+    .badge { background: rgba(129,140,248,0.15); color: #818cf8; border: 1px solid rgba(129,140,248,0.3); border-radius: 4px; padding: 2px 8px; font-size: 11px; font-weight: 600; }
+    .badge.red { background: rgba(239,68,68,0.15); color: #ef4444; border-color: rgba(239,68,68,0.3); }
+    .btn { background: rgba(129,140,248,0.1); color: #818cf8; border: 1px solid rgba(129,140,248,0.25); border-radius: 6px; padding: 5px 12px; font-size: 12px; font-weight: 500; cursor: pointer; transition: background 0.15s; font-family: inherit; }
+    .btn:hover { background: rgba(129,140,248,0.2); }
+
+    /* Toolbar */
+    .toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: #14141a; border-bottom: 1px solid #2e2e3a; flex-shrink: 0; }
+    .search { flex: 1; background: #1a1a22; border: 1px solid #2e2e3a; border-radius: 6px; padding: 5px 10px; color: #f1f0ff; font-family: inherit; font-size: 12px; outline: none; }
+    .search:focus { border-color: #818cf8; }
+    .search::placeholder { color: #5f5c7a; }
+    .filter-btn { background: transparent; color: #5f5c7a; border: 1px solid #2e2e3a; border-radius: 6px; padding: 4px 10px; font-size: 11px; cursor: pointer; font-family: inherit; transition: all 0.15s; }
+    .filter-btn.active { background: rgba(239,68,68,0.1); color: #ef4444; border-color: rgba(239,68,68,0.3); }
+    .count { color: #5f5c7a; font-size: 11px; min-width: 60px; text-align: right; }
+
+    /* Table */
+    .table-wrap { flex: 1; overflow-y: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    thead { position: sticky; top: 0; z-index: 1; background: #0f0f12; }
+    th { padding: 8px 12px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: #5f5c7a; font-weight: 600; border-bottom: 1px solid #2e2e3a; }
+    td { padding: 6px 12px; border-bottom: 1px solid rgba(46,46,58,0.5); vertical-align: middle; }
+    tr.failed td { background: rgba(239,68,68,0.04); }
+    tr:hover td { background: rgba(255,255,255,0.03); }
+    .method { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 700; letter-spacing: 0.05em; }
+    .method.GET  { background: rgba(16,185,129,0.15); color: #10b981; }
+    .method.POST { background: rgba(129,140,248,0.15); color: #818cf8; }
+    .method.PUT, .method.PATCH { background: rgba(245,158,11,0.15); color: #f59e0b; }
+    .method.DELETE { background: rgba(239,68,68,0.15); color: #ef4444; }
+    .url-cell { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #c4c0e8; font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+    .status { font-size: 11px; font-weight: 600; }
+    .status.ok { color: #10b981; }
+    .status.warn { color: #f59e0b; }
+    .status.err { color: #ef4444; }
+    .duration { color: #5f5c7a; font-size: 11px; text-align: right; }
+
+    /* Empty state */
+    .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; gap: 8px; color: #3a3a4a; padding: 40px; }
+    .empty-icon { font-size: 36px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="header-brand">🐛 BugBuddy</div>
+    <span id="session-badge" class="badge" style="display:none"></span>
+    <div class="header-controls">
+      <div id="status-dot" class="status-dot" title="Not recording"></div>
+      <span id="status-label" style="color:#5f5c7a;font-size:12px">Not recording</span>
+      <button class="btn" id="clear-btn" onclick="clearLogs()">Clear</button>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <input class="search" id="search-input" placeholder="Filter by URL…" oninput="renderLogs()" />
+    <button class="filter-btn" id="error-filter" onclick="toggleErrorFilter()">⚠ Errors only</button>
+    <span class="count" id="count-label">0 requests</span>
+  </div>
+
+  <div class="table-wrap" id="table-wrap">
+    <div class="empty" id="empty-state">
+      <div class="empty-icon">🌐</div>
+      <div>No network requests captured yet.</div>
+      <div style="font-size:11px;color:#3a3a4a">Start a recording session to capture network activity.</div>
+    </div>
+    <table id="net-table" style="display:none">
+      <thead>
+        <tr>
+          <th>Method</th>
+          <th>URL</th>
+          <th>Status</th>
+          <th style="text-align:right">Duration</th>
+        </tr>
+      </thead>
+      <tbody id="net-body"></tbody>
+    </table>
+  </div>
+
+  <script>
+    let logs = [];
+    let showErrorsOnly = false;
+
+    // Poll the background for network logs + recording state
+    function refresh() {
+      chrome.runtime.sendMessage({ type: 'GET_NETWORK_LOGS' }, (res) => {
+        if (res?.logs) { logs = res.logs; renderLogs(); }
+      });
+      chrome.runtime.sendMessage({ type: 'GET_RECORDING_STATE' }, (res) => {
+        const dot = document.getElementById('status-dot');
+        const label = document.getElementById('status-label');
+        const badge = document.getElementById('session-badge');
+        if (res?.sessionId) {
+          dot.classList.add('recording');
+          label.textContent = `Recording · ${res.stepCount ?? 0} steps`;
+          badge.textContent = '#' + res.sessionId.slice(-6).toUpperCase();
+          badge.style.display = '';
+        } else {
+          dot.classList.remove('recording');
+          label.textContent = 'Not recording';
+          badge.style.display = 'none';
+        }
+      });
+    }
+
+    function clearLogs() {
+      logs = [];
+      renderLogs();
+    }
+
+    function toggleErrorFilter() {
+      showErrorsOnly = !showErrorsOnly;
+      const btn = document.getElementById('error-filter');
+      btn.classList.toggle('active', showErrorsOnly);
+      btn.textContent = showErrorsOnly ? '✕ Errors only' : '⚠ Errors only';
+      renderLogs();
+    }
+
+    function renderLogs() {
+      const search = document.getElementById('search-input').value.toLowerCase();
+      const filtered = logs.filter(l => {
+        if (showErrorsOnly && !l.failed) return false;
+        if (search && !l.url.toLowerCase().includes(search)) return false;
+        return true;
+      });
+
+      const empty = document.getElementById('empty-state');
+      const table = document.getElementById('net-table');
+      const body = document.getElementById('net-body');
+      const count = document.getElementById('count-label');
+
+      count.textContent = `${filtered.length} request${filtered.length !== 1 ? 's' : ''}`;
+
+      if (filtered.length === 0) {
+        empty.style.display = 'flex';
+        table.style.display = 'none';
+        return;
+      }
+
+      empty.style.display = 'none';
+      table.style.display = '';
+
+      body.innerHTML = filtered.map(l => {
+        const statusClass = !l.status ? '' : l.status < 300 ? 'ok' : l.status < 400 ? 'warn' : 'err';
+        const statusText = l.failed
+          ? `<span class="status err">✕ ${l.errorText ?? 'Failed'}</span>`
+          : l.status
+            ? `<span class="status ${statusClass}">${l.status}</span>`
+            : '<span style="color:#5f5c7a">…</span>';
+        const dur = l.duration ? `${Math.round(l.duration)}ms` : '…';
+        const urlPath = l.url.replace(/^https?:\/\/[^/]+/, '') || l.url;
+        return `<tr class="${l.failed ? 'failed' : ''}">
+          <td><span class="method ${l.method}">${l.method}</span></td>
+          <td><span class="url-cell" title="${escapeHtml(l.url)}">${escapeHtml(urlPath)}</span></td>
+          <td>${statusText}</td>
+          <td class="duration">${dur}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // Listen for live updates from the background
+    chrome.runtime.onMessage.addListener((msg) => {
+      if (msg.type === 'STEP_COUNT_UPDATED') refresh();
+    });
+
+    // Expose for devtools.ts bridge
+    window.__bugbuddyUpdate = refresh;
+
+    // Initial load + polling every 3s
+    refresh();
+    setInterval(refresh, 3000);
+  </script>
+</body>
+</html>

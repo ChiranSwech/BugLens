@@ -1,0 +1,57 @@
+version: "3.9"
+
+networks:
+  bugbuddy-dev:
+    driver: bridge
+
+volumes:
+  postgres-dev-data:
+  redis-dev-data:
+  minio-dev-data:
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: bugbuddy-postgres-dev
+    environment:
+      POSTGRES_DB: bugbuddy_dev
+      POSTGRES_USER: bugbuddy
+      POSTGRES_PASSWORD: devpassword
+    volumes:
+      - postgres-dev-data:/var/lib/postgresql/data
+      - ./packages/backend/db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    ports:
+      - "5432:5432"
+    networks:
+      - bugbuddy-dev
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bugbuddy -d bugbuddy_dev"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: bugbuddy-redis-dev
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-dev-data:/data
+    networks:
+      - bugbuddy-dev
+
+  minio:
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    container_name: bugbuddy-minio-dev
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-dev-data:/data
+    networks:
+      - bugbuddy-dev

@@ -1,0 +1,63 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+
+# Tauri
+packages/desktop/src-tauri/target/
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env*.local
+.env.dev
+.env.prod
+!.env.example
+!.env.template
+
+# Keys and credentials
+*.pem
+*.key
+*.pub
+*.pfx
+*.p12
+*.cer
+*.crt
+*.der
+secrets.json
+credentials.json
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test coverage
+coverage/
+
+# Turbo cache
+.turbo/
+
+# Generated keys (never commit)
+packages/backend/keys/
+
+# MinIO data (local dev only)
+.minio-data/

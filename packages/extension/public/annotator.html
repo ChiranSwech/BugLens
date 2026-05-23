@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>BugBuddy — Screenshot Annotator</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,sans-serif;background:#0d0d11;color:#f0eeff;height:100vh;display:flex;flex-direction:column;overflow:hidden;}
+.toolbar{display:flex;align-items:center;gap:8px;padding:10px 14px;background:#13131a;border-bottom:1px solid #2a2a3a;flex-wrap:wrap;}
+.brand{font-weight:700;font-size:14px;background:linear-gradient(135deg,#818cf8,#c084fc);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-right:8px;}
+.tool-btn{padding:6px 12px;border-radius:6px;border:1px solid #2a2a3a;background:#1c1c27;color:#9896b4;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;transition:all .15s;}
+.tool-btn:hover,.tool-btn.active{border-color:#7c4dff;color:#9c6fff;background:rgba(124,77,255,.15);}
+.sep{width:1px;height:22px;background:#2a2a3a;}
+.color-dot{width:22px;height:22px;border-radius:50%;border:2px solid #2a2a3a;cursor:pointer;transition:border-color .15s;}
+.color-dot.active{border-color:#fff;}
+.canvas-area{flex:1;overflow:auto;display:flex;align-items:flex-start;justify-content:center;padding:16px;background:#0d0d11;}
+canvas{cursor:crosshair;max-width:100%;border-radius:6px;box-shadow:0 0 40px rgba(0,0,0,.6);}
+.footer{display:flex;gap:8px;padding:10px 14px;background:#13131a;border-top:1px solid #2a2a3a;}
+.save-btn{padding:8px 20px;border-radius:8px;border:none;background:linear-gradient(135deg,#7c4dff,#9c6fff);color:#fff;font-weight:700;font-size:13px;cursor:pointer;}
+.close-btn{padding:8px 16px;border-radius:8px;border:1px solid #2a2a3a;background:#1c1c27;color:#9896b4;font-size:13px;cursor:pointer;}
+#status{font-size:12px;color:#5a5878;margin-left:auto;align-self:center;}
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <span class="brand">🐛 Annotator</span>
+  <button class="tool-btn active" id="tool-rect" onclick="setTool('rect')">▭ Highlight</button>
+  <button class="tool-btn" id="tool-arrow" onclick="setTool('arrow')">↗ Arrow</button>
+  <button class="tool-btn" id="tool-text" onclick="setTool('text')">T Label</button>
+  <button class="tool-btn" id="tool-blur" onclick="setTool('blur')">◻ Redact</button>
+  <div class="sep"></div>
+  <div id="palette"></div>
+  <div class="sep"></div>
+  <button class="tool-btn" onclick="undo()">↩ Undo</button>
+</div>
+<div class="canvas-area"><canvas id="canvas"></canvas></div>
+<div class="footer">
+  <button class="close-btn" onclick="window.close()">✕ Cancel</button>
+  <button class="save-btn" onclick="saveAndClose()">💾 Save Annotation</button>
+  <span id="status">Loading…</span>
+</div>
+
+<script>
+const COLORS = ['#ef4444','#f59e0b','#10b981','#3b82f6','#a855f7','#ffffff'];
+let activeTool = 'rect', activeColor = COLORS[0];
+let isDrawing = false, startX = 0, startY = 0;
+let history = [], snapshot = null;
+let stepIndex = null;
+
+// Build palette
+const palette = document.getElementById('palette');
+palette.style.display = 'flex'; palette.style.gap = '5px';
+COLORS.forEach((c, i) => {
+  const d = document.createElement('div');
+  d.className = 'color-dot' + (i === 0 ? ' active' : '');
+  d.style.background = c;
+  d.onclick = () => { activeColor = c; document.querySelectorAll('.color-dot').forEach(x => x.classList.remove('active')); d.classList.add('active'); };
+  palette.appendChild(d);
+});
+
+function setTool(t) {
+  activeTool = t;
+  document.querySelectorAll('.tool-btn[id^="tool-"]').forEach(b => b.classList.remove('active'));
+  const btn = document.getElementById('tool-' + t);
+  if (btn) btn.classList.add('active');
+}
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+// Load image from storage
+const params = new URLSearchParams(location.search);
+stepIndex = parseInt(params.get('step') || '0');
+chrome.storage.local.get('sessionScreenshots', (r) => {
+  const shots = r.sessionScreenshots || {};
+  const src = shots[stepIndex];
+  if (!src) { document.getElementById('status').textContent = 'No screenshot for this step.'; return; }
+  const img = new Image();
+  img.onload = () => {
+    canvas.width = img.width; canvas.height = img.height;
+    ctx.drawImage(img, 0, 0);
+    history.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+    document.getElementById('status').textContent = `Step ${stepIndex + 1} — ${canvas.width}×${canvas.height}`;
+  };
+  img.src = src;
+});
+
+function getPos(e) {
+  const r = canvas.getBoundingClientRect();
+  return { x: (e.clientX - r.left) * (canvas.width / r.width), y: (e.clientY - r.top) * (canvas.height / r.height) };
+}
+
+canvas.addEventListener('mousedown', e => {
+  isDrawing = true;
+  const p = getPos(e); startX = p.x; startY = p.y;
+  snapshot = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  if (activeTool === 'text') {
+    const txt = prompt('Enter label:');
+    if (txt) {
+      ctx.font = 'bold 18px -apple-system, sans-serif';
+      ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.lineWidth = 3;
+      ctx.strokeText(txt, p.x, p.y);
+      ctx.fillStyle = activeColor; ctx.fillText(txt, p.x, p.y);
+      history.push(ctx.getImageData(0,0,canvas.width,canvas.height));
+    }
+    isDrawing = false;
+  }
+});
+
+canvas.addEventListener('mousemove', e => {
+  if (!isDrawing || activeTool === 'text') return;
+  const p = getPos(e);
+  ctx.putImageData(snapshot, 0, 0);
+  if (activeTool === 'rect') {
+    ctx.strokeStyle = activeColor; ctx.lineWidth = 2.5;
+    ctx.strokeRect(startX, startY, p.x - startX, p.y - startY);
+    ctx.fillStyle = activeColor + '22';
+    ctx.fillRect(startX, startY, p.x - startX, p.y - startY);
+  }
+  if (activeTool === 'arrow') {
+    const angle = Math.atan2(p.y - startY, p.x - startX);
+    ctx.strokeStyle = activeColor; ctx.lineWidth = 3; ctx.fillStyle = activeColor;
+    ctx.beginPath(); ctx.moveTo(startX, startY); ctx.lineTo(p.x, p.y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(p.x, p.y);
+    ctx.lineTo(p.x - 14*Math.cos(angle-Math.PI/6), p.y - 14*Math.sin(angle-Math.PI/6));
+    ctx.lineTo(p.x - 14*Math.cos(angle+Math.PI/6), p.y - 14*Math.sin(angle+Math.PI/6));
+    ctx.closePath(); ctx.fill();
+  }
+  if (activeTool === 'blur') {
+    const w = Math.abs(p.x-startX), h = Math.abs(p.y-startY);
+    const x = Math.min(p.x,startX), y = Math.min(p.y,startY);
+    ctx.filter = 'blur(10px)'; ctx.drawImage(canvas,x,y,w,h,x,y,w,h); ctx.filter = 'none';
+    ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(x,y,w,h);
+  }
+});
+
+canvas.addEventListener('mouseup', finishDraw);
+canvas.addEventListener('mouseleave', finishDraw);
+function finishDraw() {
+  if (!isDrawing) return; isDrawing = false;
+  history.push(ctx.getImageData(0,0,canvas.width,canvas.height));
+}
+
+function undo() {
+  if (history.length <= 1) return;
+  history.pop();
+  ctx.putImageData(history[history.length-1], 0, 0);
+}
+
+function saveAndClose() {
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+  chrome.storage.local.get('sessionScreenshots', (r) => {
+    const shots = r.sessionScreenshots || {};
+    shots[stepIndex] = dataUrl;
+    chrome.storage.local.set({ sessionScreenshots: shots }, () => {
+      chrome.runtime.sendMessage({ type: 'SCREENSHOT_TAKEN', payload: { stepIndex, dataUrl } });
+      window.close();
+    });
+  });
+}
+</script>
+</body>
+</html>

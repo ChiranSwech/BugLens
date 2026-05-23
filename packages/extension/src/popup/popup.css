@@ -1,0 +1,358 @@
+/* BugBuddy Extension Popup — Premium dark theme */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+  --bg-primary: #0f0f12;
+  --bg-secondary: #1a1a22;
+  --bg-tertiary: #252530;
+  --border: #2e2e3a;
+  --accent: #6366f1;
+  --accent-hover: #818cf8;
+  --accent-glow: rgba(99, 102, 241, 0.25);
+  --text-primary: #f1f0ff;
+  --text-secondary: #a09dc0;
+  --text-muted: #5f5c7a;
+  --recording-red: #ef4444;
+  --paused-amber: #f59e0b;
+  --success: #10b981;
+  --radius: 10px;
+  --radius-sm: 6px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  width: 340px;
+  min-height: 200px;
+  overflow: hidden;
+}
+
+.popup-container {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ─── Auth Screen ────────────────────────────────────────────────────────────── */
+.auth-screen {
+  align-items: center;
+  justify-content: center;
+  min-height: 280px;
+  background: radial-gradient(ellipse at top, #1a1a2e 0%, var(--bg-primary) 70%);
+}
+
+.logo {
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.logo-icon {
+  font-size: 42px;
+  filter: drop-shadow(0 0 20px rgba(99, 102, 241, 0.6));
+}
+
+.logo h1 {
+  font-size: 22px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #818cf8 0%, #c084fc 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-top: 4px;
+}
+
+.logo p {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* ─── Header ─────────────────────────────────────────────────────────────────── */
+.popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.logo-small {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.logo-small span {
+  background: linear-gradient(135deg, #818cf8 0%, #c084fc 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.offline-badge {
+  font-size: 10px;
+  font-weight: 600;
+  background: #451a03;
+  color: #fb923c;
+  border: 1px solid #7c2d12;
+  border-radius: 20px;
+  padding: 2px 8px;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* ─── Recording Indicator ────────────────────────────────────────────────────── */
+.recording-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: all 0.3s ease;
+}
+
+.recording-indicator.recording {
+  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.06);
+  color: #fca5a5;
+}
+
+.recording-indicator.paused {
+  border-color: rgba(245, 158, 11, 0.4);
+  background: rgba(245, 158, 11, 0.06);
+  color: #fde68a;
+}
+
+.recording-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+  transition: background 0.3s ease;
+}
+
+.recording-indicator.recording .recording-dot {
+  background: var(--recording-red);
+  box-shadow: 0 0 8px var(--recording-red);
+  animation: blink 1.2s infinite;
+}
+
+.recording-indicator.paused .recording-dot {
+  background: var(--paused-amber);
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* ─── Severity Selector ──────────────────────────────────────────────────────── */
+.severity-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.field-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.severity-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.severity-btn {
+  flex: 1;
+  padding: 7px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: 'Inter', sans-serif;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.severity-btn:hover {
+  border-color: var(--severity-color);
+  color: var(--severity-color);
+  background: color-mix(in srgb, var(--severity-color) 10%, transparent);
+}
+
+.severity-btn.active {
+  border-color: var(--severity-color);
+  background: color-mix(in srgb, var(--severity-color) 15%, transparent);
+  color: var(--severity-color);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--severity-color) 30%, transparent);
+}
+
+/* ─── Buttons ─────────────────────────────────────────────────────────────────── */
+.action-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.btn {
+  flex: 1;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: 'Inter', sans-serif;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--accent) 0%, #818cf8 100%);
+  color: #fff;
+  box-shadow: 0 4px 14px var(--accent-glow);
+}
+
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px var(--accent-glow);
+}
+
+.btn-google {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  gap: 10px;
+  padding: 12px 20px;
+  font-size: 14px;
+  width: 100%;
+}
+
+.btn-google:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--accent);
+}
+
+.btn-record {
+  font-size: 14px;
+  width: 100%;
+  padding: 12px;
+  letter-spacing: 0.01em;
+}
+
+.btn-pause {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #fbbf24;
+}
+
+.btn-pause:hover {
+  background: rgba(245, 158, 11, 0.2);
+}
+
+.btn-stop {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #f87171;
+}
+
+.btn-stop:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+.btn-resume {
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  color: #34d399;
+}
+
+.btn-resume:hover {
+  background: rgba(16, 185, 129, 0.2);
+}
+
+.btn-panel {
+  width: 100%;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 12px;
+  padding: 8px;
+}
+
+.btn-panel:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+/* ─── Error Banner ───────────────────────────────────────────────────────────── */
+.error-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  color: #f87171;
+  line-height: 1.4;
+}
+
+.error-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.error-close:hover {
+  color: #f87171;
+}
+
+/* ─── Hotkey hint ────────────────────────────────────────────────────────────── */
+.hotkey-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.hotkey-hint kbd {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-family: monospace;
+}

@@ -1,0 +1,178 @@
+version: "3.9"
+
+networks:
+  bugbuddy-net:
+    driver: bridge
+    internal: false # Nginx is the only external-facing service
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:
+  backend-keys:
+
+services:
+  # ─── Reverse Proxy (TLS termination) ──────────────────────────────────────
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: bugbuddy-nginx
+    restart: unless-stopped
+    ports:
+      - "443:443"
+      - "80:80"       # redirects to 443
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      - api
+    networks:
+      - bugbuddy-net
+
+  # ─── Backend API ──────────────────────────────────────────────────────────
+  api:
+    build:
+      context: ./packages/backend
+      dockerfile: Dockerfile
+      target: production
+    container_name: bugbuddy-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://bugbuddy:${POSTGRES_PASSWORD}@postgres:5432/bugbuddy
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_USE_SSL: "false"
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: bugbuddy-attachments
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      JWT_KEYS_DIR: /app/keys
+      SESSION_SECRET: ${SESSION_SECRET}
+      CORS_ORIGIN: ${CORS_ORIGIN}
+      PORT: 3001
+    volumes:
+      - backend-keys:/app/keys  # RS256 keypair persisted across restarts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - bugbuddy-net
+    # Never expose directly; Nginx is the only entry point
+    expose:
+      - "3001"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ─── Background Workers ────────────────────────────────────────────────────
+  worker:
+    build:
+      context: ./packages/backend
+      dockerfile: Dockerfile
+      target: worker
+    container_name: bugbuddy-worker
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://bugbuddy:${POSTGRES_PASSWORD}@postgres:5432/bugbuddy
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_USE_SSL: "false"
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: bugbuddy-attachments
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      # Jira (optional — leave blank to disable)
+      JIRA_BASE_URL: ${JIRA_BASE_URL:-}
+      JIRA_API_TOKEN: ${JIRA_API_TOKEN:-}
+      JIRA_PROJECT_KEY: ${JIRA_PROJECT_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - bugbuddy-net
+
+  # ─── PostgreSQL ────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: bugbuddy-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: bugbuddy
+      POSTGRES_USER: bugbuddy
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # Lock down: app user has no superuser privileges
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./packages/backend/db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    networks:
+      - bugbuddy-net
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bugbuddy -d bugbuddy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Redis ─────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7.4-alpine
+    container_name: bugbuddy-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD}
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    networks:
+      - bugbuddy-net
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── MinIO (S3-compatible local object storage) ────────────────────────────
+  minio:
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    container_name: bugbuddy-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+    volumes:
+      - minio-data:/data
+    networks:
+      - bugbuddy-net
+    expose:
+      - "9000"
+    # MinIO console only accessible from localhost (not through Nginx in production)
+    ports:
+      - "127.0.0.1:9001:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

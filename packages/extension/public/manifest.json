@@ -1,0 +1,68 @@
+{
+  "manifest_version": 3,
+  "name": "BugBuddy",
+  "version": "0.2.0",
+  "description": "Enterprise bug capture and reporting — record, annotate, and submit bugs in seconds.",
+  "permissions": [
+    "storage",
+    "tabs",
+    "activeTab",
+    "scripting",
+    "contextMenus",
+    "notifications",
+    "sidePanel",
+    "identity",
+    "debugger",
+    "windows",
+    "downloads",
+    "unlimitedStorage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "src/popup/index.html",
+    "default_title": "BugBuddy"
+  },
+  "side_panel": {
+    "default_path": "src/sidepanel/index.html"
+  },
+  "devtools_page": "src/devtools/index.html",
+  "commands": {
+    "capture-screenshot": {
+      "suggested_key": {
+        "default": "Ctrl+I",
+        "mac": "Command+I"
+      },
+      "description": "Capture a screenshot of the current tab and add to the active session"
+    },
+    "pause-resume-recording": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+P",
+        "mac": "Command+Shift+P"
+      },
+      "description": "Pause or resume the current recording session"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none';"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["annotator.html", "src/devtools/panel.html"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
