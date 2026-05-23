@@ -12,10 +12,10 @@ function createRedisClient(): Redis {
       port: Number(parsed.port) || 6379,
       username: parsed.username || undefined,
       password: parsed.password || undefined,
-      maxRetriesPerRequest: 3,
-      enableReadyCheck: true,
-      lazyConnect: false,
-      retryStrategy: (times: number) => Math.min(times * 200, 30_000),
+      maxRetriesPerRequest: null,
+      enableReadyCheck: false,
+      lazyConnect: true,
+      retryStrategy: (times: number) => Math.min(times * 500, 30_000),
     };
     
     if (isTls) {
