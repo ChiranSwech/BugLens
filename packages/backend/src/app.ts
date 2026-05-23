@@ -2,13 +2,11 @@ import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
 import cookie from '@fastify/cookie';
-import csrfProtection from '@fastify/csrf-protection';
 import rateLimit from '@fastify/rate-limit';
 import multipart from '@fastify/multipart';
 import { randomUUID } from 'crypto';
 
 import { config, isDev } from './config.js';
-import { redis } from './db/redis.js';
 import { authRoutes } from './auth/routes.js';
 import { bugRoutes } from './bugs/routes.js';
 import { sessionRoutes } from './sessions/routes.js';
@@ -70,17 +68,11 @@ export async function buildApp() {
     secret: config.SESSION_SECRET, // Signs cookies to detect tampering
   });
 
-  // ─── CSRF protection (double-submit cookie pattern) ──────────────────────
-  await app.register(csrfProtection, {
-    cookieOpts: { signed: true, httpOnly: true, sameSite: 'strict', secure: !isDev },
-  });
-
-  // ─── Rate limiting (Redis-backed sliding window) ─────────────────────────
+  // ─── Rate limiting (in-memory store — works on single-instance deployments) ─
   await app.register(rateLimit, {
     global: true,
     max: config.RATE_LIMIT_MAX,
     timeWindow: config.RATE_LIMIT_WINDOW_MS,
-    redis,
     keyGenerator: (request) => {
       // Use user ID if authenticated, otherwise fall back to IP
       const userId = (request as unknown as { user?: { sub: string } }).user?.sub;
