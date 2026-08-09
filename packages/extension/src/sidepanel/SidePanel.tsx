@@ -29,7 +29,7 @@ interface NetworkLog {
   responseBody?: string;
 }
 
-type TabId = 'steps' | 'annotator' | 'network' | 'report';
+type TabId = 'steps' | 'replay' | 'annotator' | 'network' | 'report';
 type Tool = 'arrow' | 'rect' | 'text' | 'blur';
 const COLORS = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#a855f7', '#ffffff'];
 const ACTION_ICONS: Record<string, string> = {
@@ -148,6 +148,22 @@ export const SidePanel: React.FC = () => {
   const [azureSubmitting, setAzureSubmitting] = useState(false);
   const [azureResult, setAzureResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
+  // AI Triage State
+  const [triageResult, setTriageResult] = useState<{
+    rootCause: string;
+    technicalSummary: string;
+    suggestedFix: string;
+    affectedComponent: 'FRONTEND' | 'BACKEND' | 'EXTERNAL_API';
+    confidenceScore: number;
+  } | null>(null);
+  const [isTriaging, setIsTriaging] = useState(false);
+
+  // Session Replay State
+  const [isReplaying, setIsReplaying] = useState(false);
+  const [replayIndex, setReplayIndex] = useState(0);
+  const [replaySpeed, setReplaySpeed] = useState<0.5 | 1 | 2 | 4>(1);
+  const [isExportingVideo, setIsExportingVideo] = useState(false);
+
   // Annotator
   const [annotatorImage, setAnnotatorImage] = useState<string | null>(null);
   const [annotatorStep, setAnnotatorStep] = useState<number | null>(null);
@@ -158,6 +174,151 @@ export const SidePanel: React.FC = () => {
   const startPos = useRef({ x: 0, y: 0 });
   const snapshot = useRef<ImageData | null>(null);
   const history = useRef<ImageData[]>([]);
+
+  // ── Replay playback timer ────────────────────────────────────────────────
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval> | null = null;
+    if (isReplaying && events.length > 0) {
+      const intervalMs = Math.max(200, 1500 / replaySpeed);
+      timer = setInterval(() => {
+        setReplayIndex((prev) => {
+          if (prev >= events.length - 1) {
+            setIsReplaying(false);
+            return prev;
+          }
+          return prev + 1;
+        });
+      }, intervalMs);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [isReplaying, replaySpeed, events.length]);
+
+  // ── AI Root Cause Triage Handler ──────────────────────────────────────────
+  const runTriage = async () => {
+    setIsTriaging(true);
+    setError(null);
+    try {
+      const payload = {
+        steps,
+        networkLogs: networkLogs.filter(n => n.failed || (n.status && n.status >= 400)),
+        consoleLogs: consoleLogs.filter(c => c.type === 'error' || c.type === 'exception'),
+        bugUrl,
+        testData,
+      };
+      const res = await chrome.runtime.sendMessage({
+        type: 'API_REQUEST',
+        payload: { url: '/v1/ai/triage', options: { method: 'POST', body: JSON.stringify(payload) } },
+      });
+
+      if (res?.data) {
+        setTriageResult(res.data);
+      } else if (res?.error) {
+        setError(res.error);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Triage analysis failed');
+    } finally {
+      setIsTriaging(false);
+    }
+  };
+
+  // ── Export Session Video Handler ─────────────────────────────────────────
+  const exportSessionVideo = async () => {
+    if (events.length === 0) return;
+    setIsExportingVideo(true);
+    try {
+      const width = 800;
+      const height = 450;
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d')!;
+
+      const stream = canvas.captureStream(30);
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+      const chunks: Blob[] = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunks.push(e.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        const blob = new Blob(chunks, { type: 'video/webm' });
+        const url = URL.createObjectURL(blob);
+        const filename = `session-recording-${Date.now()}.webm`;
+        await chrome.downloads.download({ url, filename, saveAs: true });
+        URL.revokeObjectURL(url);
+        setIsExportingVideo(false);
+      };
+
+      mediaRecorder.start();
+
+      for (let i = 0; i < events.length; i++) {
+        const ev = events[i]!;
+        const shotUrl = screenshots[i];
+
+        ctx.fillStyle = '#090d16';
+        ctx.fillRect(0, 0, width, height);
+
+        if (shotUrl) {
+          await new Promise<void>((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+              const scale = Math.min(width / img.width, (height - 60) / img.height);
+              const x = (width - img.width * scale) / 2;
+              const y = 50 + (height - 60 - img.height * scale) / 2;
+              ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+              resolve();
+            };
+            img.onerror = () => resolve();
+            img.src = shotUrl;
+          });
+        }
+
+        ctx.fillStyle = '#111827';
+        ctx.fillRect(0, 0, width, 46);
+        ctx.strokeStyle = '#374151';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, 46);
+        ctx.lineTo(width, 46);
+        ctx.stroke();
+
+        ctx.fillStyle = '#6366f1';
+        ctx.beginPath();
+        ctx.arc(24, 23, 13, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(`${i + 1}`, 24, 27);
+
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#f9fafb';
+        ctx.font = 'bold 13px sans-serif';
+        const actionStr = (ev.actionType || 'CLICK').toUpperCase();
+        const labelStr = ev.elementLabel ? ` — ${ev.elementLabel.slice(0, 45)}` : '';
+        ctx.fillText(`${actionStr}${labelStr}`, 46, 27);
+
+        if (ev.pageUrl) {
+          ctx.fillStyle = '#9ca3af';
+          ctx.font = '11px sans-serif';
+          ctx.textAlign = 'right';
+          ctx.fillText(ev.pageUrl.slice(0, 40), width - 16, 27);
+        }
+
+        await new Promise((r) => setTimeout(r, 1200));
+      }
+
+      mediaRecorder.stop();
+    } catch (err) {
+      console.error('[BugBuddy] Export video error:', err);
+      setIsExportingVideo(false);
+    }
+  };
 
   // Network filter
   const [netSearch, setNetSearch] = useState('');
@@ -1816,9 +1977,10 @@ export const SidePanel: React.FC = () => {
           </div>
         </div>
         <div className="tabs">
-          {(['steps', 'annotator', 'network', 'report'] as TabId[]).map(t => (
+          {(['steps', 'replay', 'annotator', 'network', 'report'] as TabId[]).map(t => (
             <button key={t} className={`tab${tab === t ? ' active' : ''}`} onClick={() => setTab(t)}>
               {t === 'steps' && <><span>Steps</span>{events.length > 0 && <span className="tab-badge">{events.length}</span>}</>}
+              {t === 'replay' && <><span>▶ Replay</span>{events.length > 0 && <span className="tab-badge">{events.length}</span>}</>}
               {t === 'annotator' && <><span>Annotate</span>{Object.keys(screenshots).length > 0 && <span className="tab-badge">{Object.keys(screenshots).length}</span>}</>}
               {t === 'network' && <><span>Network</span>{failedNet > 0 && <span className="tab-badge red">{failedNet}</span>}</>}
               {t === 'report' && <span>Report</span>}
@@ -1982,6 +2144,160 @@ export const SidePanel: React.FC = () => {
           </div>
         )}
 
+        {/* ── Replay Tab ── */}
+        {tab === 'replay' && (
+          <div className="replay-container" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {events.length === 0 ? (
+              <div className="empty-state">
+                <span className="empty-icon">▶</span>
+                No session steps recorded to replay.<br />
+                <small>Record a test session first to playback visual step timelines.</small>
+              </div>
+            ) : (
+              <>
+                {/* Replay Controls Top Bar */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg2)', padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border)', flexWrap: 'wrap', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => setIsReplaying(!isReplaying)}
+                      style={{
+                        background: isReplaying ? '#f59e0b' : 'linear-gradient(135deg, var(--accent) 0%, #818cf8 100%)',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: 6,
+                        padding: '6px 14px',
+                        fontWeight: 700,
+                        fontSize: 12,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6
+                      }}
+                    >
+                      {isReplaying ? '⏸ Pause' : '▶ Play Replay'}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setReplayIndex(prev => Math.max(0, prev - 1))}
+                      disabled={replayIndex === 0}
+                      style={{ background: 'var(--bg3)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: 6, padding: '6px 10px', fontSize: 12, cursor: replayIndex === 0 ? 'not-allowed' : 'pointer', opacity: replayIndex === 0 ? 0.4 : 1 }}
+                    >
+                      ⏮ Prev
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setReplayIndex(prev => Math.min(events.length - 1, prev + 1))}
+                      disabled={replayIndex === events.length - 1}
+                      style={{ background: 'var(--bg3)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: 6, padding: '6px 10px', fontSize: 12, cursor: replayIndex === events.length - 1 ? 'not-allowed' : 'pointer', opacity: replayIndex === events.length - 1 ? 0.4 : 1 }}
+                    >
+                      Next ⏭
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                      <span style={{ fontSize: 11, color: 'var(--text3)', fontWeight: 600 }}>Speed:</span>
+                      {[0.5, 1, 2, 4].map((s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => setReplaySpeed(s as any)}
+                          style={{
+                            background: replaySpeed === s ? 'var(--accent)' : 'var(--bg3)',
+                            color: replaySpeed === s ? '#fff' : 'var(--text2)',
+                            border: '1px solid var(--border)',
+                            borderRadius: 4,
+                            padding: '2px 6px',
+                            fontSize: 11,
+                            fontWeight: 600,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {s}x
+                        </button>
+                      ))}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={exportSessionVideo}
+                      disabled={isExportingVideo}
+                      style={{
+                        background: 'rgba(16, 185, 129, 0.15)',
+                        color: '#10b981',
+                        border: '1px solid rgba(16, 185, 129, 0.4)',
+                        borderRadius: 6,
+                        padding: '6px 10px',
+                        fontWeight: 600,
+                        fontSize: 11,
+                        cursor: isExportingVideo ? 'wait' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4
+                      }}
+                    >
+                      {isExportingVideo ? '⏳ Exporting...' : '🎥 Export WebM Video'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Scrubber Range Slider */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <input
+                    type="range"
+                    min={0}
+                    max={events.length - 1}
+                    value={replayIndex}
+                    onChange={(e) => setReplayIndex(Number(e.target.value))}
+                    style={{ width: '100%', accentColor: 'var(--accent)', cursor: 'pointer' }}
+                  />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text3)' }}>
+                    <span>Step {replayIndex + 1} of {events.length}</span>
+                    <span>{events[replayIndex]?.timestamp ? new Date(events[replayIndex]!.timestamp).toLocaleTimeString() : ''}</span>
+                  </div>
+                </div>
+
+                {/* Active Replay Step Visual Display Card */}
+                {events[replayIndex] && (
+                  <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ background: 'var(--accent)', color: '#fff', padding: '3px 8px', borderRadius: 4, fontWeight: 700, fontSize: 12 }}>
+                          Step #{replayIndex + 1}
+                        </span>
+                        <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>
+                          {(events[replayIndex]?.actionType || 'CLICK').toUpperCase()} on "{renderLabel(events[replayIndex])}"
+                        </span>
+                      </div>
+                      {events[replayIndex]?.pageUrl && (
+                        <span style={{ fontSize: 11, color: 'var(--text3)', background: 'var(--bg3)', padding: '2px 8px', borderRadius: 4, wordBreak: 'break-all' }}>
+                          {events[replayIndex]!.pageUrl}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Screenshot Visual Preview */}
+                    <div style={{ position: 'relative', width: '100%', background: '#090d16', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border)', display: 'flex', justifyContent: 'center' }}>
+                      {screenshots[replayIndex] ? (
+                        <img
+                          src={screenshots[replayIndex]}
+                          alt={`Step ${replayIndex + 1}`}
+                          style={{ width: '100%', maxHeight: 360, objectFit: 'contain', display: 'block' }}
+                        />
+                      ) : (
+                        <div style={{ padding: 40, color: 'var(--text3)', fontSize: 12 }}>No screenshot captured for this step</div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
         {/* ── Annotator Tab ── */}
         {tab === 'annotator' && (
           <div className="annotator-wrap">
@@ -2064,6 +2380,52 @@ export const SidePanel: React.FC = () => {
         {/* ── Report Tab ── */}
         {tab === 'report' && (
           <div className="report-section">
+            {/* AI Root Cause Triage Section */}
+            <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: 14, display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontWeight: 700, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--accent)' }}>
+                  🧠 AI Root Cause Triage
+                </span>
+                <button
+                  type="button"
+                  onClick={runTriage}
+                  disabled={isTriaging}
+                  style={{
+                    background: 'linear-gradient(135deg, var(--accent) 0%, #818cf8 100%)',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 6,
+                    padding: '5px 12px',
+                    fontWeight: 600,
+                    fontSize: 11,
+                    cursor: isTriaging ? 'wait' : 'pointer'
+                  }}
+                >
+                  {isTriaging ? '⏳ Analyzing Stacktrace...' : '⚡ Run Root Cause Triage'}
+                </button>
+              </div>
+
+              {triageResult && (
+                <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ background: triageResult.affectedComponent === 'BACKEND' ? '#ef4444' : triageResult.affectedComponent === 'EXTERNAL_API' ? '#f59e0b' : '#3b82f6', color: '#fff', padding: '2px 6px', borderRadius: 4, fontWeight: 700, fontSize: 10 }}>
+                      {triageResult.affectedComponent}
+                    </span>
+                    <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--text)' }}>
+                      {triageResult.rootCause}
+                    </span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: 12, color: 'var(--text2)', lineHeight: 1.4 }}>
+                    {triageResult.technicalSummary}
+                  </p>
+                  <div style={{ background: 'rgba(99, 102, 241, 0.1)', borderLeft: '3px solid var(--accent)', padding: '6px 10px', borderRadius: 4, marginTop: 4 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)', display: 'block' }}>💡 Recommended Fix:</span>
+                    <span style={{ fontSize: 12, color: 'var(--text)' }}>{triageResult.suggestedFix}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* AI generate */}
             <button type="button" className={`ai-btn${isGenerating ? ' loading' : ''}`} onClick={generateAI} disabled={isGenerating || events.length === 0}>
               {isGenerating ? '⏳ Generating…' : '✨ Generate Title & Description with AI'}
