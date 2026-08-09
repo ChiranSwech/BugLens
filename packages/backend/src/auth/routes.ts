@@ -128,7 +128,7 @@ export async function authRoutes(app: FastifyInstance) {
           if (isExtension || isWebDashboard) {
             // Append token as hash or query param. Hash is safer for tokens but query is easier for current FE logic.
             const separator = redirectUrl.includes('?') ? '&' : '?';
-            return reply.redirect(`${redirectUrl}${separator}access_token=${accessToken}`);
+            return reply.redirect(`${redirectUrl}${separator}access_token=${accessToken}&refresh_token=${refreshToken}`);
           }
         } catch (e) {
           request.log.warn('Invalid state parameter in OAuth callback');
@@ -150,8 +150,9 @@ export async function authRoutes(app: FastifyInstance) {
   );
 
   // ─── Refresh access token ─────────────────────────────────────────────────
-  app.post('/refresh', async (request, reply) => {
-    const refreshToken = request.cookies['refresh_token'];
+  app.post<{ Body?: { refreshToken?: string } }>('/refresh', async (request, reply) => {
+    const bodyToken = request.body?.refreshToken;
+    const refreshToken = bodyToken || request.cookies['refresh_token'];
     if (!refreshToken) {
       return reply.status(401).send({
         type: 'https://bugbuddy.app/errors/no-refresh-token',
@@ -195,7 +196,7 @@ export async function authRoutes(app: FastifyInstance) {
       maxAge: 30 * 24 * 60 * 60,
     });
 
-    reply.send({ accessToken });
+    reply.send({ accessToken, refreshToken: rotation.newToken });
   });
 
   // ─── Logout ──────────────────────────────────────────────────────────────

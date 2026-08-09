@@ -123,14 +123,14 @@ const pendingRequests = new Map<string, NetworkLogEntry>();
 
 // ─── Persistence ──────────────────────────────────────────────────────────────
 
-async function loadState(): Promise<void> {
-  const session = await chrome.storage.session.get('accessToken');
-  accessToken = (session['accessToken'] as string) ?? null;
+let stateLoadedPromise: Promise<void> | null = null;
 
+async function loadState(): Promise<void> {
   const local = await chrome.storage.local.get([
-    'currentSessionId', 'lastSessionId', 'isPaused', 'stepCount',
+    'accessToken', 'refreshToken', 'currentSessionId', 'lastSessionId', 'isPaused', 'stepCount',
     'sessionEvents', 'sessionScreenshots', 'networkLogs',
   ]);
+  accessToken = (local['accessToken'] as string) ?? null;
   currentSessionId = (local['currentSessionId'] as string) ?? null;
   lastSessionId = (local['lastSessionId'] as string) ?? null;
   isPaused = (local['isPaused'] as boolean) ?? false;
@@ -138,6 +138,28 @@ async function loadState(): Promise<void> {
   sessionEvents = (local['sessionEvents'] as unknown[]) ?? [];
   sessionScreenshots = (local['sessionScreenshots'] as Record<number, string>) ?? {};
   networkLogs = (local['networkLogs'] as NetworkLogEntry[]) ?? [];
+
+  // Backward compatibility check for chrome.storage.session
+  if (!accessToken) {
+    const session = await chrome.storage.session.get('accessToken');
+    if (session['accessToken']) {
+      accessToken = session['accessToken'] as string;
+      await chrome.storage.local.set({ accessToken });
+    }
+  }
+
+  // Auto-refresh token if accessToken is missing but refreshToken exists
+  const refreshToken = local['refreshToken'] as string | undefined;
+  if (!accessToken && refreshToken) {
+    await refreshAccessToken();
+  }
+}
+
+function ensureStateLoaded(): Promise<void> {
+  if (!stateLoadedPromise) {
+    stateLoadedPromise = loadState();
+  }
+  return stateLoadedPromise;
 }
 
 async function saveSessionId(id: string | null): Promise<void> {
@@ -175,8 +197,13 @@ async function incrementStepCount(count: number): Promise<void> {
 
 // ─── Token management ─────────────────────────────────────────────────────────
 
-async function saveToken(token: string): Promise<void> {
+async function saveToken(token: string, refreshToken?: string): Promise<void> {
   accessToken = token;
+  const updates: Record<string, string> = { accessToken: token };
+  if (refreshToken) {
+    updates['refreshToken'] = refreshToken;
+  }
+  await chrome.storage.local.set(updates);
   await chrome.storage.session.set({ accessToken: token });
 }
 
@@ -185,28 +212,31 @@ async function clearTokens(): Promise<void> {
   await saveSessionId(null);
   await savePausedState(false);
   await chrome.storage.session.clear();
-  await chrome.storage.local.remove('refreshToken');
+  await chrome.storage.local.remove(['accessToken', 'refreshToken']);
 }
 
 async function refreshAccessToken(): Promise<string | null> {
   const stored = await chrome.storage.local.get('refreshToken');
   const refreshToken = stored['refreshToken'] as string | undefined;
-  if (!refreshToken) return null;
 
   try {
     const response = await fetch(`${API_BASE}/auth/refresh`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
     });
 
     if (!response.ok) {
-      await clearTokens();
+      if (response.status === 401) {
+        // Token invalid or revoked — clear tokens so user re-authenticates
+        await clearTokens();
+      }
       return null;
     }
 
-    const { accessToken: newToken } = (await response.json()) as { accessToken: string };
-    await saveToken(newToken);
+    const { accessToken: newToken, refreshToken: newRefreshToken } = (await response.json()) as { accessToken: string; refreshToken?: string };
+    await saveToken(newToken, newRefreshToken);
     return newToken;
   } catch {
     return null;
@@ -219,26 +249,34 @@ async function login(): Promise<{ success: boolean; error?: string }> {
   try {
     const authUrl = `${API_BASE}/auth/google`;
     const redirectUrl = chrome.identity.getRedirectURL();
-
+    console.log('[Background] login: authUrl =', authUrl, 'redirectUrl =', redirectUrl);
+ 
     const responseUrl = await chrome.identity.launchWebAuthFlow({
       url: authUrl + '?redirect_uri=' + encodeURIComponent(redirectUrl),
       interactive: true,
     });
-
+ 
+    console.log('[Background] login: responseUrl =', responseUrl);
+ 
     if (!responseUrl) {
+      console.warn('[Background] login: No response URL from launchWebAuthFlow');
       return { success: false, error: 'No response URL from OAuth flow' };
     }
-
+ 
     const url = new URL(responseUrl);
     const token = url.searchParams.get('access_token');
-
+    const refreshToken = url.searchParams.get('refresh_token');
+ 
     if (!token) {
+      console.warn('[Background] login: No access_token in response URL:', responseUrl);
       return { success: false, error: 'No access token in response' };
     }
-
-    await saveToken(token);
+ 
+    await saveToken(token, refreshToken ?? undefined);
+    console.log('[Background] login: Tokens saved successfully');
     return { success: true };
   } catch (err) {
+    console.error('[Background] login error:', err);
     return { success: false, error: (err as Error).message };
   }
 }
@@ -249,6 +287,7 @@ async function apiCall<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<{ data: T; ok: true } | { ok: false; status: number; data?: unknown }> {
+  await ensureStateLoaded();
   let token = accessToken;
 
   if (!token) {
@@ -655,6 +694,7 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
 });
 
 async function handleMessage(message: Message): Promise<unknown> {
+  await ensureStateLoaded();
   switch (message.type) {
     case 'LOGIN':
       return login();
@@ -968,7 +1008,7 @@ async function handleMessage(message: Message): Promise<unknown> {
 }
 
 // ─── Startup ──────────────────────────────────────────────────────────────────
-loadState().catch(console.error);
+ensureStateLoaded().catch(console.error);
 
 self.addEventListener('online', () => {
   flushQueue().catch(console.error);

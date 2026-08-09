@@ -58,23 +58,35 @@ async function compressScreenshot(
   maxBytes = 800_000,
   quality = 0.72
 ): Promise<string | null> {
+  if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) return null;
   return new Promise((resolve) => {
     const img = new Image();
+    const timer = setTimeout(() => resolve(dataUrl), 2000);
     img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      canvas.getContext('2d')!.drawImage(img, 0, 0);
-      const compressed = canvas.toDataURL('image/jpeg', quality);
-      const approxBytes = Math.round((compressed.length * 3) / 4);
-      if (approxBytes > maxBytes) {
-        console.warn(`[BugBuddy] Screenshot too large after compression (${approxBytes} bytes), skipping`);
-        resolve(null);
-        return;
+      clearTimeout(timer);
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { resolve(dataUrl); return; }
+        ctx.drawImage(img, 0, 0);
+        const compressed = canvas.toDataURL('image/jpeg', quality);
+        const approxBytes = Math.round((compressed.length * 3) / 4);
+        if (approxBytes > maxBytes) {
+          console.warn(`[BugBuddy] Screenshot too large after compression (${approxBytes} bytes), skipping`);
+          resolve(null);
+          return;
+        }
+        resolve(compressed);
+      } catch {
+        resolve(dataUrl);
       }
-      resolve(compressed);
     };
-    img.onerror = () => resolve(null);
+    img.onerror = () => {
+      clearTimeout(timer);
+      resolve(null);
+    };
     img.src = dataUrl;
   });
 }
@@ -116,6 +128,7 @@ export const SidePanel: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [copiedSteps, setCopiedSteps] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [customApiUrl, setCustomApiUrl] = useState('http://localhost:8080');
   // Integration toggles
@@ -179,7 +192,7 @@ export const SidePanel: React.FC = () => {
         if (prev) return prev;
         return evRes.events.map((ev: any, i: number) => {
           const target = ev.elementLabel || 'element';
-          const action = ev.actionType.toUpperCase();
+          const action = (ev.actionType || 'CLICK').toUpperCase();
           if (action === 'CLICK') return `${i + 1}. Click on the "${target}".`;
           if (action === 'INPUT') {
             const val = ev.valueMasked && ev.valueMasked !== '[REDACTED]' ? ` "${ev.valueMasked}"` : '';
@@ -188,7 +201,7 @@ export const SidePanel: React.FC = () => {
           if (action === 'NAVIGATE') return `${i + 1}. Navigate to the next page.`;
           if (action === 'SCROLL') return `${i + 1}. Scroll the page.`;
           if (action === 'HOVER') return `${i + 1}. Hover over "${target}".`;
-          return `${i + 1}. Perform ${ev.actionType} on "${target}".`;
+          return `${i + 1}. Perform ${ev.actionType || 'action'} on "${target}".`;
         }).join('\n');
       });
     }
@@ -435,12 +448,22 @@ export const SidePanel: React.FC = () => {
   // ── Submit ────────────────────────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!sessionId) { setError('No session found.'); return; }
+    let activeSessionId = sessionId;
+    if (!activeSessionId) {
+      try {
+        const stored = await chrome.storage.local.get(['currentSessionId', 'lastSessionId']);
+        activeSessionId = stored.currentSessionId || stored.lastSessionId || crypto.randomUUID();
+        setSessionId(activeSessionId);
+      } catch {
+        activeSessionId = crypto.randomUUID();
+        setSessionId(activeSessionId);
+      }
+    }
     setIsSubmitting(true); setError(null);
     try {
       // Compress each screenshot to JPEG before embedding.
       const screenshotEntries = await Promise.all(
-        Object.entries(screenshots).map(async ([idx, dataUrl]) => {
+        Object.entries(screenshots || {}).map(async ([idx, dataUrl]) => {
           const compressed = await compressScreenshot(dataUrl);
           if (!compressed) return null;
           return { stepIndex: Number(idx), dataUrl: compressed };
@@ -456,25 +479,28 @@ export const SidePanel: React.FC = () => {
       if (azureChecked) integrations.push('azure-devops');
 
       const payload = {
-        sessionId, title, description, severity,
+        sessionId: activeSessionId,
+        title: title || 'Untitled Bug',
+        description,
+        severity,
         reproductionConfidence: 90,
-        steps: events.map((ev, i) => ({
+        steps: (events || []).map((ev, i) => ({
           order: i + 1,
-          actionType: ev.actionType,
-          elementLabel: ev.elementLabel.slice(0, 499),
-          timestamp: ev.timestamp,
-          valueMasked: ev.valueMasked,
-          cssSelector: ev.cssSelector,
-          pageUrl: ev.pageUrl,
-          pageTitle: ev.pageTitle,
+          actionType: (ev.actionType || 'CLICK').toUpperCase(),
+          elementLabel: (ev.elementLabel || 'Element').slice(0, 499),
+          timestamp: ev.timestamp || new Date().toISOString(),
+          valueMasked: ev.valueMasked || undefined,
+          cssSelector: (ev.cssSelector || '').slice(0, 1999) || undefined,
+          pageUrl: (ev.pageUrl || '').slice(0, 1999) || undefined,
+          pageTitle: (ev.pageTitle || '').slice(0, 999) || undefined,
         })),
         attachments: screenshotUrls,
-        networkLogs: attachNetwork ? networkLogs.filter(l => l.failed).slice(0, 50).map(l => ({ ...l, url: l.url.slice(0, 19999) })) : [],
+        networkLogs: attachNetwork ? (networkLogs || []).filter(l => l && l.failed).slice(0, 50).map(l => ({ ...l, url: (l.url || '').slice(0, 19999) })) : [],
         integrations,
         expectedResult: expectedResult.trim() || undefined,
         actualResult: actualResult.trim() || undefined,
-        consoleLogs: consoleLogs.slice(-100),
-        storageSnapshot,
+        consoleLogs: (consoleLogs || []).slice(-100),
+        storageSnapshot: storageSnapshot || {},
         bugUrl: bugUrl.trim() || undefined,
         testData: testData.trim() || undefined,
         mainImageIndex,
@@ -1911,8 +1937,8 @@ export const SidePanel: React.FC = () => {
                     <div className="step-num">{i + 1}</div>
                     <div className="step-body">
                       <div className="step-action">
-                        <span className="action-icon">{ACTION_ICONS[ev.actionType.toUpperCase()] ?? '▶'}</span>
-                        <span className="action-type">{ev.actionType}</span>
+                        <span className="action-icon">{ACTION_ICONS[(ev.actionType || 'CLICK').toUpperCase()] ?? '▶'}</span>
+                        <span className="action-type">{ev.actionType || 'CLICK'}</span>
                       </div>
                       <div className="step-label">{renderLabel(ev)}</div>
                       <div className="step-meta">
@@ -1921,7 +1947,7 @@ export const SidePanel: React.FC = () => {
                             {(ev.toUrl || ev.pageUrl || '').replace(/^https?:\/\//, '').slice(0, 40)}
                           </span>
                         )}
-                        <span className="step-time">{new Date(ev.timestamp).toLocaleTimeString()}</span>
+                        <span className="step-time">{ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString() : ''}</span>
                       </div>
                     </div>
                     <div
@@ -2284,6 +2310,20 @@ export const SidePanel: React.FC = () => {
                 </button>
               </div>
             </div>
+
+            {/* Submit Bug Button */}
+            <button
+              type="button"
+              className="submit-btn"
+              onClick={handleSubmit as any}
+              disabled={isSubmitting || !title || events.length === 0}
+            >
+              {isSubmitting ? (
+                <><span style={{ opacity: 0.8 }}>⏳</span> Submitting…</>
+              ) : (
+                <><span>🐛</span> Submit Bug Report</>
+              )}
+            </button>
 
             {error && <div className="error-box">⚠ {error}</div>}
           </div>

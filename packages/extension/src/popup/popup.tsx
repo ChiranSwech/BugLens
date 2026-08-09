@@ -72,8 +72,13 @@ function App() {
   }, []);
 
   const handleLogin = useCallback(async () => {
+    setError(null);
     const response = await chrome.runtime.sendMessage({ type: 'LOGIN' });
-    if (response?.success) setIsAuthenticated(true);
+    if (response?.success) {
+      setIsAuthenticated(true);
+    } else {
+      setError(response?.error || 'Login failed. Check background logs.');
+    }
   }, []);
 
   const handleStartRecording = useCallback(async () => {
