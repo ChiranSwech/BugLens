@@ -39,10 +39,11 @@ function createRedisClient(): Redis {
 
 export const redis = createRedisClient();
 
+let lastRedisErrorLog = 0;
 redis.on('error', (err: Error) => {
-  console.error('[REDIS] Connection error:', err.message);
-});
-
-redis.on('reconnecting', () => {
-  console.warn('[REDIS] Reconnecting...');
+  const now = Date.now();
+  if (now - lastRedisErrorLog > 30_000) {
+    lastRedisErrorLog = now;
+    console.error('[REDIS] Connection warning:', err.message, '(Verify REDIS_URL in environment)');
+  }
 });
