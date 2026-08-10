@@ -6,6 +6,10 @@
   "scripts": {
     "dev": "turbo run dev --parallel",
     "build": "turbo run build",
+    "build:extension": "pnpm --filter @bugbuddy/extension build",
+    "build:backend": "pnpm --filter @bugbuddy/backend build",
+    "build:shared": "pnpm --filter @bugbuddy/shared build",
+    "build:web": "pnpm --filter @bugbuddy/web build",
     "test": "turbo run test",
     "test:integration": "turbo run test:integration",
     "lint": "turbo run lint",

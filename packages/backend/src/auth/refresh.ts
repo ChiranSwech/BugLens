@@ -32,7 +32,7 @@ export async function rotateRefreshToken(
     `SELECT id, user_id FROM refresh_tokens
      WHERE token_hash = $1
        AND expires_at > now()
-       AND revoked_at IS NULL`,
+       AND (revoked_at IS NULL OR revoked_at > now() - INTERVAL '10 seconds')`,
     [hash]
   );
 

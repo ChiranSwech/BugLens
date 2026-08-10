@@ -49,21 +49,56 @@ const ConfigSchema = z.object({
   API_BASE_URL: z.string().url().default('http://localhost:8080'),
 
   // Optional: Jira integration
-  JIRA_BASE_URL: z.string().url().optional().or(z.literal('')),
-  JIRA_API_TOKEN: z.string().optional().or(z.literal('')),
-  JIRA_EMAIL: z.string().email().optional().or(z.literal('')),
-  JIRA_PROJECT_KEY: z.string().optional().or(z.literal('')),
+  JIRA_BASE_URL: z
+    .string()
+    .optional()
+    .transform((v) => {
+      if (!v) return '';
+      let trimmed = v.trim();
+      if (!trimmed) return '';
+      if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+        trimmed = `https://${trimmed}`;
+      }
+      return trimmed.replace(/\/+$/, '');
+    }),
+  JIRA_API_TOKEN: z
+    .string()
+    .optional()
+    .transform((v) => (v ? v.trim() : '')),
+  JIRA_EMAIL: z
+    .string()
+    .optional()
+    .transform((v) => (v ? v.trim() : '')),
+  JIRA_PROJECT_KEY: z
+    .string()
+    .optional()
+    .transform((v) => (v ? v.trim().toUpperCase() : '')),
 
   // Optional: Azure DevOps integration
-  AZURE_ORG: z.string().optional().or(z.literal('')),
-  AZURE_PROJECT: z.string().optional().or(z.literal('')),
-  AZURE_PAT: z.string().optional().or(z.literal('')),
+  AZURE_ORG: z
+    .string()
+    .optional()
+    .transform((v) => (v ? v.trim() : '')),
+  AZURE_PROJECT: z
+    .string()
+    .optional()
+    .transform((v) => (v ? v.trim() : '')),
+  AZURE_PAT: z
+    .string()
+    .optional()
+    .transform((v) => (v ? v.trim() : '')),
 
   // Optional: Slack integration (incoming webhook)
-  SLACK_WEBHOOK_URL: z.string().url().optional().or(z.literal('')),
+  SLACK_WEBHOOK_URL: z
+    .string()
+    .optional()
+    .transform((v) => (v ? v.trim() : '')),
 
   // Optional: OpenAI for AI-generated bug titles/descriptions (server-side)
-  OPENAI_API_KEY: z.string().optional().or(z.literal('')),
+  OPENAI_API_KEY: z
+    .string()
+    .optional()
+    .transform((v) => (v ? v.trim() : '')),
 
   // Rate limiting
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100),
@@ -74,6 +109,15 @@ const ConfigSchema = z.object({
 export type Config = z.infer<typeof ConfigSchema>;
 
 function loadConfig(): Config {
+  // Load .env file automatically if available in environment
+  try {
+    if (typeof (process as any).loadEnvFile === 'function') {
+      (process as any).loadEnvFile();
+    }
+  } catch {
+    // Ignore if .env is missing or loaded via script command
+  }
+
   const result = ConfigSchema.safeParse(process.env);
   if (!result.success) {
     const errors = result.error.errors

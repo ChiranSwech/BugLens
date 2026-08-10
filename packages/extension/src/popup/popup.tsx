@@ -24,28 +24,60 @@ function App() {
   const [isRestrictedPage, setIsRestrictedPage] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [customApiUrl, setCustomApiUrl] = useState('http://localhost:8080');
+  const [userOpenAiKey, setUserOpenAiKey] = useState('');
+  const [userJiraUrl, setUserJiraUrl] = useState('');
+  const [userJiraEmail, setUserJiraEmail] = useState('');
+  const [userJiraToken, setUserJiraToken] = useState('');
+  const [userJiraProject, setUserJiraProject] = useState('');
 
   useEffect(() => {
-    // Load custom API URL from storage
-    chrome.storage.local.get(['customApiBase'], (res) => {
-      if (res.customApiBase) {
-        setCustomApiUrl(res.customApiBase);
+    // Immediately read persistent auth & BYOK state from chrome.storage.local
+    chrome.storage.local.get([
+      'accessToken', 'refreshToken', 'user', 'customApiBase',
+      'currentSessionId', 'isPaused', 'stepCount',
+      'userOpenAiKey', 'userJiraUrl', 'userJiraEmail', 'userJiraToken', 'userJiraProject'
+    ], (res) => {
+      if (res.customApiBase) setCustomApiUrl(res.customApiBase);
+      if (res.userOpenAiKey) setUserOpenAiKey(res.userOpenAiKey);
+      if (res.userJiraUrl) setUserJiraUrl(res.userJiraUrl);
+      if (res.userJiraEmail) setUserJiraEmail(res.userJiraEmail);
+      if (res.userJiraToken) setUserJiraToken(res.userJiraToken);
+      if (res.userJiraProject) setUserJiraProject(res.userJiraProject);
+
+      if (res.accessToken || res.refreshToken || res.user) {
+        setIsAuthenticated(true);
+      }
+      if (res.currentSessionId) {
+        setRecordingState(res.isPaused ? 'paused' : 'recording');
+        setStepCount(res.stepCount ?? 0);
       }
     });
 
-    // Check recording and auth status from background
+    // Query background worker for live status
     chrome.runtime.sendMessage({ type: 'GET_RECORDING_STATE' }, (response) => {
       if (response) {
-        setIsAuthenticated(response.isAuthenticated);
+        if (typeof response.isAuthenticated === 'boolean') {
+          setIsAuthenticated(response.isAuthenticated);
+        }
         setRecordingState(response.sessionId ? (response.isPaused ? 'paused' : 'recording') : 'idle');
         setStepCount(response.stepCount ?? 0);
       }
     });
 
-    // Listen for step count updates
+    // Listen for step count and state updates from background worker
     const messageListener = (message: any) => {
       if (message.type === 'STEP_COUNT_UPDATED') {
         setStepCount(message.payload.stepCount);
+      }
+      if (message.type === 'RECORDING_STATE_CHANGED') {
+        const p = message.payload;
+        if (typeof p.isAuthenticated === 'boolean') {
+          setIsAuthenticated(p.isAuthenticated);
+        }
+        setRecordingState(p.sessionId ? (p.isPaused ? 'paused' : 'recording') : 'idle');
+        if (typeof p.stepCount === 'number') {
+          setStepCount(p.stepCount);
+        }
       }
     };
     chrome.runtime.onMessage.addListener(messageListener);
@@ -112,19 +144,30 @@ function App() {
       });
 
       if (sessionResponse?.sessionId) {
-        // Inject content script message to start recording
+        // Immediately set recording state in Popup UI
+        setRecordingState('recording');
+        setStepCount(0);
+
+        // Notify content script (with dynamic injection fallback)
         try {
           await chrome.tabs.sendMessage(tab.id, {
             type: 'START_RECORDING',
             payload: { sid: sessionResponse.sessionId },
           });
-          setRecordingState('recording');
-          setStepCount(0);
-        } catch (err) {
-          console.error('[Popup] Failed to communicate with content script:', err);
-          setError('Could not connect to the page. Please refresh the page and try again.');
-          // Cleanup session if we can't start recording
-          await chrome.runtime.sendMessage({ type: 'END_SESSION', payload: { status: 'ABANDONED' } });
+        } catch {
+          try {
+            await chrome.scripting.executeScript({
+              target: { tabId: tab.id },
+              files: ['content.js'],
+            });
+            await new Promise((r) => setTimeout(r, 100));
+            await chrome.tabs.sendMessage(tab.id, {
+              type: 'START_RECORDING',
+              payload: { sid: sessionResponse.sessionId },
+            });
+          } catch (err) {
+            console.warn('[Popup] Content script messaging notice:', err);
+          }
         }
       } else {
         setError(sessionResponse?.error ?? 'Failed to start session. Please check your connection.');
@@ -136,39 +179,62 @@ function App() {
   }, [isRestrictedPage]);
 
   const handleOpenSidePanel = useCallback(async () => {
-    await chrome.runtime.sendMessage({ type: 'OPEN_SIDE_PANEL' });
+    try {
+      const win = await chrome.windows.getCurrent();
+      if (win.id) {
+        await chrome.sidePanel.open({ windowId: win.id });
+      }
+    } catch {
+      await chrome.runtime.sendMessage({ type: 'OPEN_SIDE_PANEL' });
+    }
   }, []);
 
   const handleStopRecording = useCallback(async () => {
-    // Tell the content script to immediately remove the recording banner
+    // 1. Immediately open SidePanel before any async tick to preserve User Gesture
+    try {
+      const win = await chrome.windows.getCurrent();
+      if (win.id) {
+        await chrome.sidePanel.open({ windowId: win.id });
+      }
+    } catch (err) {
+      console.warn('[Popup] SidePanel open warning:', err);
+    }
+
+    // 2. Reflect idle state immediately in Popup UI
+    setRecordingState('idle');
+
+    // 3. Remove recording banner & notify content scripts
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tabs[0]?.id) {
       chrome.tabs.sendMessage(tabs[0].id, { type: 'STOP_RECORDING' }).catch(() => {});
     }
 
+    // 4. Send END_SESSION to backend worker
     await chrome.runtime.sendMessage({ type: 'END_SESSION', payload: { status: 'COMPLETED' } });
-    setRecordingState('idle');
-
-    // Open side panel for review and submission
-    await chrome.sidePanel.open({ windowId: (await chrome.windows.getCurrent()).id! });
   }, []);
 
   const handlePauseResume = useCallback(async () => {
     if (recordingState === 'recording') {
-      await chrome.runtime.sendMessage({ type: 'PAUSE_RECORDING' });
       setRecordingState('paused');
+      await chrome.runtime.sendMessage({ type: 'PAUSE_RECORDING' });
     } else if (recordingState === 'paused') {
-      await chrome.runtime.sendMessage({ type: 'RESUME_RECORDING' });
       setRecordingState('recording');
+      await chrome.runtime.sendMessage({ type: 'RESUME_RECORDING' });
     }
   }, [recordingState]);
 
   const handleSaveSettings = useCallback(() => {
     const cleanUrl = customApiUrl.trim().replace(/\/$/, '');
-    chrome.storage.local.set({ customApiBase: cleanUrl || 'http://localhost:8080' }, () => {
+    chrome.storage.local.set({
+      customApiBase: cleanUrl || 'http://localhost:8080',
+      userOpenAiKey: userOpenAiKey.trim(),
+      userJiraUrl: userJiraUrl.trim(),
+      userJiraEmail: userJiraEmail.trim(),
+      userJiraToken: userJiraToken.trim(),
+      userJiraProject: userJiraProject.trim().toUpperCase(),
+    }, () => {
       setShowSettings(false);
       setError(null);
-      // Recheck auth state after changing backend
       chrome.runtime.sendMessage({ type: 'GET_RECORDING_STATE' }, (response) => {
         if (response) {
           setIsAuthenticated(response.isAuthenticated);
@@ -177,11 +243,11 @@ function App() {
         }
       });
     });
-  }, [customApiUrl]);
+  }, [customApiUrl, userOpenAiKey, userJiraUrl, userJiraEmail, userJiraToken, userJiraProject]);
 
   if (showSettings) {
     return (
-      <div className="popup-container">
+      <div className="popup-container" style={{ maxHeight: '520px', overflowY: 'auto' }}>
         <header className="popup-header" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '8px', marginBottom: '8px' }}>
           <div className="logo-small" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: '16px', height: '16px', color: '#818cf8', flexShrink: 0 }}>
@@ -189,40 +255,144 @@ function App() {
               <path d="M12 8V4" />
               <path d="M9 12h6" />
               <path d="M9 4.5a3 3 0 0 1 6 0" />
-              <path d="M4 10h2" />
-              <path d="M18 10h2" />
-              <path d="M3 14h3" />
-              <path d="M18 14h3" />
-              <path d="M4 18h2" />
-              <path d="M18 18h2" />
             </svg>
-            <span style={{ fontWeight: 700, fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Settings</span>
+            <span style={{ fontWeight: 700, fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Personal Keys & Settings</span>
           </div>
         </header>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '8px 0' }}>
-          <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label className="field-label" style={{ fontSize: '10px', color: 'var(--text-muted)' }}>BugBuddy Server API URL</label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '4px 0' }}>
+          <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <label className="field-label" style={{ fontSize: '10px', color: 'var(--text-muted)' }}>BugBuddy Backend API URL</label>
             <input
               type="text"
               value={customApiUrl}
               onChange={(e) => setCustomApiUrl(e.target.value)}
-              placeholder="e.g. http://localhost:8080"
+              placeholder="e.g. http://localhost:8080 or https://api.render.com"
               style={{
                 width: '100%',
                 background: 'var(--bg-secondary)',
                 border: '1px solid var(--border)',
                 borderRadius: '6px',
-                padding: '8px 12px',
+                padding: '6px 10px',
                 color: 'var(--text-primary)',
                 fontFamily: 'monospace',
-                fontSize: '12px',
+                fontSize: '11px',
                 outline: 'none'
               }}
             />
           </div>
 
-          <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '8px', marginTop: '2px' }}>
+            <span style={{ fontSize: '10px', fontWeight: 700, color: '#818cf8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>🔑 Bring Your Own Keys (BYOK)</span>
+          </div>
+
+          <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <label className="field-label" style={{ fontSize: '10px', color: 'var(--text-muted)' }}>OpenAI API Key (Personal)</label>
+            <input
+              type="password"
+              value={userOpenAiKey}
+              onChange={(e) => setUserOpenAiKey(e.target.value)}
+              placeholder="sk-..."
+              style={{
+                width: '100%',
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border)',
+                borderRadius: '6px',
+                padding: '6px 10px',
+                color: 'var(--text-primary)',
+                fontFamily: 'monospace',
+                fontSize: '11px',
+                outline: 'none'
+              }}
+            />
+          </div>
+
+          <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <label className="field-label" style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Jira Base Domain URL</label>
+            <input
+              type="text"
+              value={userJiraUrl}
+              onChange={(e) => setUserJiraUrl(e.target.value)}
+              placeholder="https://yourcompany.atlassian.net"
+              style={{
+                width: '100%',
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border)',
+                borderRadius: '6px',
+                padding: '6px 10px',
+                color: 'var(--text-primary)',
+                fontFamily: 'monospace',
+                fontSize: '11px',
+                outline: 'none'
+              }}
+            />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+            <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label className="field-label" style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Jira Account Email</label>
+              <input
+                type="email"
+                value={userJiraEmail}
+                onChange={(e) => setUserJiraEmail(e.target.value)}
+                placeholder="you@company.com"
+                style={{
+                  width: '100%',
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  padding: '6px 10px',
+                  color: 'var(--text-primary)',
+                  fontSize: '11px',
+                  outline: 'none'
+                }}
+              />
+            </div>
+            <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label className="field-label" style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Jira Project Key</label>
+              <input
+                type="text"
+                value={userJiraProject}
+                onChange={(e) => setUserJiraProject(e.target.value)}
+                placeholder="KAN"
+                style={{
+                  width: '100%',
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  padding: '6px 10px',
+                  color: 'var(--text-primary)',
+                  fontFamily: 'monospace',
+                  fontSize: '11px',
+                  textTransform: 'uppercase',
+                  outline: 'none'
+                }}
+              />
+            </div>
+          </div>
+
+          <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <label className="field-label" style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Jira API Token</label>
+            <input
+              type="password"
+              value={userJiraToken}
+              onChange={(e) => setUserJiraToken(e.target.value)}
+              placeholder="ATATT3xFfGF0..."
+              style={{
+                width: '100%',
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border)',
+                borderRadius: '6px',
+                padding: '6px 10px',
+                color: 'var(--text-primary)',
+                fontFamily: 'monospace',
+                fontSize: '11px',
+                outline: 'none'
+              }}
+            />
+          </div>
+
+          <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
             <button
               className="btn"
               onClick={() => setShowSettings(false)}

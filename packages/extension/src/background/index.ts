@@ -162,6 +162,18 @@ function ensureStateLoaded(): Promise<void> {
   return stateLoadedPromise;
 }
 
+function broadcastStateChange(): void {
+  chrome.runtime.sendMessage({
+    type: 'RECORDING_STATE_CHANGED',
+    payload: {
+      sessionId: currentSessionId,
+      isPaused,
+      stepCount,
+      isAuthenticated: !!accessToken,
+    },
+  }).catch(() => {});
+}
+
 async function saveSessionId(id: string | null): Promise<void> {
   if (id) {
     currentSessionId = id;
@@ -182,17 +194,20 @@ async function saveSessionId(id: string | null): Promise<void> {
     currentSessionId = null;
     await chrome.storage.local.set({ currentSessionId: null });
   }
+  broadcastStateChange();
 }
 
 async function savePausedState(paused: boolean): Promise<void> {
   isPaused = paused;
   await chrome.storage.local.set({ isPaused: paused });
+  broadcastStateChange();
 }
 
 async function incrementStepCount(count: number): Promise<void> {
   stepCount += count;
   await chrome.storage.local.set({ stepCount });
   chrome.runtime.sendMessage({ type: 'STEP_COUNT_UPDATED', payload: { stepCount } }).catch(() => { });
+  broadcastStateChange();
 }
 
 // ─── Token management ─────────────────────────────────────────────────────────
@@ -209,38 +224,46 @@ async function saveToken(token: string, refreshToken?: string): Promise<void> {
 
 async function clearTokens(): Promise<void> {
   accessToken = null;
-  await saveSessionId(null);
-  await savePausedState(false);
   await chrome.storage.session.clear();
   await chrome.storage.local.remove(['accessToken', 'refreshToken']);
 }
 
+let refreshPromise: Promise<string | null> | null = null;
+
 async function refreshAccessToken(): Promise<string | null> {
-  const stored = await chrome.storage.local.get('refreshToken');
-  const refreshToken = stored['refreshToken'] as string | undefined;
-
-  try {
-    const response = await fetch(`${API_BASE}/auth/refresh`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken }),
-    });
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        // Token invalid or revoked — clear tokens so user re-authenticates
-        await clearTokens();
-      }
-      return null;
-    }
-
-    const { accessToken: newToken, refreshToken: newRefreshToken } = (await response.json()) as { accessToken: string; refreshToken?: string };
-    await saveToken(newToken, newRefreshToken);
-    return newToken;
-  } catch {
-    return null;
+  if (refreshPromise) {
+    return refreshPromise;
   }
+
+  refreshPromise = (async () => {
+    try {
+      const stored = await chrome.storage.local.get('refreshToken');
+      const refreshToken = stored['refreshToken'] as string | undefined;
+      if (!refreshToken) return null;
+
+      const response = await fetch(`${API_BASE}/auth/refresh`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken }),
+      });
+
+      if (!response.ok) {
+        // Do not clear tokens on transient network or navigation errors.
+        return null;
+      }
+
+      const { accessToken: newToken, refreshToken: newRefreshToken } = (await response.json()) as { accessToken: string; refreshToken?: string };
+      await saveToken(newToken, newRefreshToken);
+      return newToken;
+    } catch {
+      return null;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
 }
 
 // ─── Google OAuth login ───────────────────────────────────────────────────────
@@ -645,6 +668,19 @@ chrome.debugger.onEvent.addListener((_source, method, params: any) => {
   }
 });
 
+// Auto-attach debugger when user switches active tabs or navigates to a new URL while recording
+chrome.tabs.onActivated.addListener(async (activeInfo) => {
+  if (currentSessionId) {
+    await attachDebugger(activeInfo.tabId);
+  }
+});
+
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (currentSessionId && changeInfo.status === 'complete' && tab.active) {
+    await attachDebugger(tabId);
+  }
+});
+
 
 
 // ─── Commands (keyboard shortcuts) ───────────────────────────────────────────
@@ -686,6 +722,16 @@ chrome.commands.onCommand.addListener(async (command) => {
 
 // ─── Message handler ──────────────────────────────────────────────────────────
 
+async function isUserAuthenticated(): Promise<boolean> {
+  await ensureStateLoaded();
+  if (accessToken) return true;
+  const stored = await chrome.storage.local.get(['accessToken', 'refreshToken', 'user']);
+  if (stored['accessToken'] || stored['refreshToken'] || stored['user']) {
+    return true;
+  }
+  return false;
+}
+
 chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) => {
   handleMessage(message).then(sendResponse).catch((err: Error) => {
     sendResponse({ error: err.message });
@@ -706,8 +752,10 @@ async function handleMessage(message: Message): Promise<unknown> {
       return { success: true };
     }
 
-    case 'GET_AUTH':
-      return { isAuthenticated: !!accessToken };
+    case 'GET_AUTH': {
+      const auth = await isUserAuthenticated();
+      return { isAuthenticated: auth };
+    }
 
     case 'START_SESSION': {
       const payload = message.payload as CreateSession;
@@ -773,13 +821,15 @@ async function handleMessage(message: Message): Promise<unknown> {
       return { paused: false };
     }
 
-    case 'GET_RECORDING_STATE':
+    case 'GET_RECORDING_STATE': {
+      const auth = await isUserAuthenticated();
       return {
         sessionId: currentSessionId,
         isPaused,
         stepCount,
-        isAuthenticated: !!accessToken,
+        isAuthenticated: auth,
       };
+    }
 
     case 'GET_SESSION_EVENTS':
       return {
@@ -912,29 +962,64 @@ async function handleMessage(message: Message): Promise<unknown> {
     }
 
     case 'CREATE_JIRA_ISSUE': {
-      const payload = message.payload;
-      return apiCall('/v1/integrations/jira', { method: 'POST', body: JSON.stringify(payload) });
+      const userKeys = await chrome.storage.local.get(['userJiraUrl', 'userJiraEmail', 'userJiraToken', 'userJiraProject']);
+      const payload = {
+        ...(message.payload as object),
+        ...(userKeys.userJiraUrl ? { userJiraUrl: userKeys.userJiraUrl } : {}),
+        ...(userKeys.userJiraEmail ? { userJiraEmail: userKeys.userJiraEmail } : {}),
+        ...(userKeys.userJiraToken ? { userJiraToken: userKeys.userJiraToken } : {}),
+        ...(userKeys.userJiraProject ? { userJiraProject: userKeys.userJiraProject } : {}),
+      };
+      const result = await apiCall<{ issueKey?: string; issueUrl?: string }>('/v1/integrations/jira', { method: 'POST', body: JSON.stringify(payload) });
+      if (!result.ok) {
+        const detail = (result.data as any)?.detail ?? (result.data as any)?.title ?? `HTTP ${result.status}`;
+        return { error: detail, detail };
+      }
+      return result.data;
     }
 
     case 'CREATE_AZURE_WORK_ITEM': {
-      const payload = message.payload;
-      return apiCall('/v1/integrations/azure-devops', { method: 'POST', body: JSON.stringify(payload) });
+      const userKeys = await chrome.storage.local.get(['userAzureOrg', 'userAzureProject', 'userAzurePat']);
+      const payload = {
+        ...(message.payload as object),
+        ...(userKeys.userAzureOrg ? { userAzureOrg: userKeys.userAzureOrg } : {}),
+        ...(userKeys.userAzureProject ? { userAzureProject: userKeys.userAzureProject } : {}),
+        ...(userKeys.userAzurePat ? { userAzurePat: userKeys.userAzurePat } : {}),
+      };
+      const result = await apiCall<{ workItemId?: number; workItemUrl?: string }>('/v1/integrations/azure-devops', { method: 'POST', body: JSON.stringify(payload) });
+      if (!result.ok) {
+        const detail = (result.data as any)?.detail ?? (result.data as any)?.title ?? `HTTP ${result.status}`;
+        return { error: detail, detail };
+      }
+      return result.data;
     }
 
     case 'SEND_SLACK_NOTIFICATION': {
-      const payload = message.payload;
-      return apiCall('/v1/integrations/slack', { method: 'POST', body: JSON.stringify(payload) });
+      const userKeys = await chrome.storage.local.get(['userSlackWebhook']);
+      const payload = {
+        ...(message.payload as object),
+        ...(userKeys.userSlackWebhook ? { userSlackWebhook: userKeys.userSlackWebhook } : {}),
+      };
+      const result = await apiCall<{ success: boolean }>('/v1/integrations/slack', { method: 'POST', body: JSON.stringify(payload) });
+      if (!result.ok) {
+        const detail = (result.data as any)?.detail ?? (result.data as any)?.title ?? `HTTP ${result.status}`;
+        return { error: detail, detail };
+      }
+      return result.data;
     }
 
     case 'GENERATE_AI_CONTENT': {
       const { steps } = message.payload as { steps: unknown[] };
-      // AI generation is handled server-side; the OpenAI key is in the backend .env.
+      const userKeys = await chrome.storage.local.get(['userOpenAiKey']);
+      const payload = {
+        steps,
+        ...(userKeys.userOpenAiKey ? { userOpenAiKey: userKeys.userOpenAiKey } : {}),
+      };
       const result = await apiCall<{ title: string; description: string; suggestedSeverity: string }>(
         '/v1/ai/generate',
-        { method: 'POST', body: JSON.stringify({ steps }) }
+        { method: 'POST', body: JSON.stringify(payload) }
       );
       if (!result.ok) {
-        // Surface the real backend error detail so the user knows the actual cause.
         const detail = (result.data as any)?.detail ?? (result.data as any)?.title ?? 'Unknown error';
         return { error: `AI generation failed (HTTP ${result.status}): ${detail}` };
       }

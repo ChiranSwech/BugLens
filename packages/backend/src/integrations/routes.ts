@@ -12,6 +12,7 @@ const SlackSchema = z.object({
   channel: z.string().optional(), // e.g. '#bugs' — used as display hint only; webhook determines real channel
   bugUrl: z.string().url().optional(),
   stepCount: z.number().int().nonnegative().optional(),
+  userSlackWebhook: z.string().optional(),
 });
 
 const JiraSchema = z.object({
@@ -22,6 +23,10 @@ const JiraSchema = z.object({
   priority: z.enum(['Highest', 'High', 'Medium', 'Low', 'Lowest']).default('Medium'),
   labels: z.array(z.string()).max(10).optional(),
   assignee: z.string().optional(),
+  userJiraUrl: z.string().optional(),
+  userJiraEmail: z.string().optional(),
+  userJiraToken: z.string().optional(),
+  userJiraProject: z.string().optional(),
 });
 
 const AzureSchema = z.object({
@@ -31,6 +36,9 @@ const AzureSchema = z.object({
   workItemType: z.enum(['Bug', 'Task', 'User Story', 'Feature']).default('Bug'),
   priority: z.number().int().min(1).max(4).default(2),
   assignee: z.string().optional(),
+  userAzureOrg: z.string().optional(),
+  userAzureProject: z.string().optional(),
+  userAzurePat: z.string().optional(),
 });
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -63,22 +71,22 @@ export async function integrationRoutes(app: FastifyInstance) {
   app.post('/slack', {
     preHandler: [authenticate],
   }, async (request, reply) => {
-    const webhookUrl = config.SLACK_WEBHOOK_URL;
-    if (!webhookUrl) {
-      return reply.status(503).send({
-        type: 'https://bugbuddy.app/errors/not-configured',
-        title: 'Slack not configured',
-        status: 503,
-        detail: 'Set SLACK_WEBHOOK_URL in the backend .env to enable Slack notifications.',
-      });
-    }
-
     const body = SlackSchema.safeParse(request.body);
     if (!body.success) {
       return reply.status(400).send({ status: 400, errors: body.error.errors });
     }
 
-    const { title, description, severity, channel, bugUrl, stepCount } = body.data;
+    const { title, description, severity, channel, bugUrl, stepCount, userSlackWebhook } = body.data;
+    const webhookUrl = userSlackWebhook?.trim() || config.SLACK_WEBHOOK_URL;
+    if (!webhookUrl) {
+      return reply.status(503).send({
+        type: 'https://bugbuddy.app/errors/not-configured',
+        title: 'Slack not configured',
+        status: 503,
+        detail: 'Configure Slack Webhook URL in your Extension Settings or backend .env.',
+      });
+    }
+
     const emoji = severityEmoji(severity);
     const channelHint = channel ? ` → ${channel}` : '';
 
@@ -140,22 +148,35 @@ export async function integrationRoutes(app: FastifyInstance) {
   app.post('/jira', {
     preHandler: [authenticate],
   }, async (request, reply) => {
-    const { JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN, JIRA_PROJECT_KEY } = config;
-    if (!JIRA_BASE_URL || !JIRA_EMAIL || !JIRA_API_TOKEN || !JIRA_PROJECT_KEY) {
-      return reply.status(503).send({
-        type: 'https://bugbuddy.app/errors/not-configured',
-        title: 'Jira not configured',
-        status: 503,
-        detail: 'Set JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN, and JIRA_PROJECT_KEY in the backend .env.',
-      });
-    }
-
     const body = JiraSchema.safeParse(request.body);
     if (!body.success) {
       return reply.status(400).send({ status: 400, errors: body.error.errors });
     }
 
-    const { title, description, severity, issueType, priority, labels, assignee } = body.data;
+    const { title, description, severity, issueType, priority, labels, assignee, userJiraUrl, userJiraEmail, userJiraToken, userJiraProject } = body.data;
+
+    let JIRA_BASE_URL = (userJiraUrl?.trim() || config.JIRA_BASE_URL).replace(/\/+$/, '');
+    if (JIRA_BASE_URL && !JIRA_BASE_URL.startsWith('http://') && !JIRA_BASE_URL.startsWith('https://')) {
+      JIRA_BASE_URL = `https://${JIRA_BASE_URL}`;
+    }
+    const JIRA_EMAIL = userJiraEmail?.trim() || config.JIRA_EMAIL;
+    const JIRA_API_TOKEN = userJiraToken?.trim() || config.JIRA_API_TOKEN;
+    const JIRA_PROJECT_KEY = (userJiraProject?.trim() || config.JIRA_PROJECT_KEY).toUpperCase();
+
+    const missingKeys: string[] = [];
+    if (!JIRA_BASE_URL) missingKeys.push('JIRA_BASE_URL');
+    if (!JIRA_EMAIL) missingKeys.push('JIRA_EMAIL');
+    if (!JIRA_API_TOKEN) missingKeys.push('JIRA_API_TOKEN');
+    if (!JIRA_PROJECT_KEY) missingKeys.push('JIRA_PROJECT_KEY');
+
+    if (missingKeys.length > 0) {
+      return reply.status(503).send({
+        type: 'https://bugbuddy.app/errors/not-configured',
+        title: 'Jira not configured',
+        status: 503,
+        detail: `Missing Jira key(s): ${missingKeys.join(', ')}. Please configure your personal Jira credentials in Extension Settings or backend .env.`,
+      });
+    }
 
     const effectivePriority = priority ?? severityToJiraPriority(severity);
     const jiraLabels = ['bugbuddy', ...(severity ? [severity.toLowerCase()] : []), ...(labels ?? [])];
@@ -224,22 +245,30 @@ export async function integrationRoutes(app: FastifyInstance) {
   app.post('/azure-devops', {
     preHandler: [authenticate],
   }, async (request, reply) => {
-    const { AZURE_ORG, AZURE_PROJECT, AZURE_PAT } = config;
-    if (!AZURE_ORG || !AZURE_PROJECT || !AZURE_PAT) {
-      return reply.status(503).send({
-        type: 'https://bugbuddy.app/errors/not-configured',
-        title: 'Azure DevOps not configured',
-        status: 503,
-        detail: 'Set AZURE_ORG, AZURE_PROJECT, and AZURE_PAT in the backend .env.',
-      });
-    }
-
     const body = AzureSchema.safeParse(request.body);
     if (!body.success) {
       return reply.status(400).send({ status: 400, errors: body.error.errors });
     }
 
-    const { title, description, severity, workItemType, priority, assignee } = body.data;
+    const { title, description, severity, workItemType, priority, assignee, userAzureOrg, userAzureProject, userAzurePat } = body.data;
+
+    const AZURE_ORG = userAzureOrg?.trim() || config.AZURE_ORG;
+    const AZURE_PROJECT = userAzureProject?.trim() || config.AZURE_PROJECT;
+    const AZURE_PAT = userAzurePat?.trim() || config.AZURE_PAT;
+
+    const missingKeys: string[] = [];
+    if (!AZURE_ORG) missingKeys.push('AZURE_ORG');
+    if (!AZURE_PROJECT) missingKeys.push('AZURE_PROJECT');
+    if (!AZURE_PAT) missingKeys.push('AZURE_PAT');
+
+    if (missingKeys.length > 0) {
+      return reply.status(503).send({
+        type: 'https://bugbuddy.app/errors/not-configured',
+        title: 'Azure DevOps not configured',
+        status: 503,
+        detail: `Missing Azure key(s): ${missingKeys.join(', ')}. Configure your Azure DevOps credentials in Extension Settings or backend .env.`,
+      });
+    }
 
     const effectivePriority = priority ?? severityToAzurePriority(severity);
     const encodedType = encodeURIComponent(workItemType);

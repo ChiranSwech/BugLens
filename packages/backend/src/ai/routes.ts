@@ -4,6 +4,7 @@ import { authenticate } from '../middleware/authenticate.js';
 import { config } from '../config.js';
 
 const GenerateSchema = z.object({
+  userOpenAiKey: z.string().optional(),
   steps: z.array(
     z.object({
       actionType: z.string(),
@@ -15,6 +16,7 @@ const GenerateSchema = z.object({
 });
 
 const TriageSchema = z.object({
+  userOpenAiKey: z.string().optional(),
   steps: z.array(
     z.object({
       actionType: z.string().optional(),
@@ -52,16 +54,6 @@ export async function aiRoutes(app: FastifyInstance) {
   app.post('/generate', {
     preHandler: [authenticate],
   }, async (request, reply) => {
-    const apiKey = config.OPENAI_API_KEY;
-    if (!apiKey) {
-      return reply.status(503).send({
-        type: 'https://bugbuddy.app/errors/not-configured',
-        title: 'AI generation not configured',
-        status: 503,
-        detail: 'Set OPENAI_API_KEY in the backend .env to enable AI title/description generation.',
-      });
-    }
-
     const body = GenerateSchema.safeParse(request.body);
     if (!body.success) {
       return reply.status(400).send({
@@ -72,7 +64,13 @@ export async function aiRoutes(app: FastifyInstance) {
       });
     }
 
-    const { steps } = body.data;
+    const { steps, userOpenAiKey } = body.data;
+
+    const apiKey = userOpenAiKey?.trim() || config.OPENAI_API_KEY;
+    if (!apiKey) {
+      // Fallback: Smart heuristic step deduplication and consolidation when offline / no key
+      return reply.send(summarizeStepsHeuristically(steps));
+    }
 
     const stepsText = steps.map((s, i) => {
       const action = s.actionType?.toUpperCase() ?? 'ACTION';
@@ -82,16 +80,21 @@ export async function aiRoutes(app: FastifyInstance) {
       return `${i + 1}. ${action} on "${label}"${value}${url}`;
     }).join('\n');
 
-    const prompt = `You are a QA engineer writing a professional bug report. Based on the following user steps captured during a bug recording session, generate a concise bug report.
+    const prompt = `You are a Principal QA Engineer. Based on the following raw recorded user steps (which contain ${steps.length} raw micro-events like repetitive clicks, character inputs, and scroll events), produce a clean, concise, high-level Reproduction Steps list.
 
-Reproduction Steps:
+RAW CAPTURED EVENTS (${steps.length} total):
 ${stepsText}
 
+REQUIREMENTS FOR STEP CONSOLIDATION:
+1. CONSOLIDATION: If there are many raw granular steps (e.g. 10 to 50+ events), DO NOT list all 50 raw steps. Consolidate consecutive form field inputs, rapid double clicks, scroll noise, and page transitions into 4 to 8 high-level, human-readable reproduction steps (e.g., '1. Open Login page', '2. Enter username and password credentials', '3. Click Login button', '4. Observe error toast').
+2. PRESERVE INTENT & CONTEXT: Do not lose key button targets, essential input values, or critical failure context.
+3. NO NOISE: Do NOT include raw CSS selectors, HTML tags, full query string URLs, or debug noise.
+
 Output a JSON object with exactly these fields:
-- title: A short, specific bug title (max 80 chars, start with a verb like "Unable to", "Error when", "Button fails to")
-- description: A professional description (2-3 sentences: what happened, what was expected, what impact it has)
-- suggestedSeverity: One of "P0", "P1", "P2", "P3", "P4" based on severity
-- stepsSummary: A string containing reproduction steps formatted as a professional numbered list, with each step on a separate line (using newline '\n' characters), written exactly how a real manual tester writes them. Each step must be clear, natural, and concise. Do NOT include any URLs, raw page paths, query parameters, HTML selectors, or technical debug info.
+- title: Short, specific bug title (max 80 chars, starting with a verb e.g. "Unable to submit registration form")
+- description: Concise professional bug description (2-3 sentences explaining what happened, expected behavior, and user impact)
+- suggestedSeverity: One of "P0", "P1", "P2", "P3", "P4"
+- stepsSummary: A clean, consolidated numbered list string of 4 to 8 steps, separated by newline ('\n') characters.
 
 Return ONLY valid JSON, no markdown.`;
 
@@ -111,14 +114,8 @@ Return ONLY valid JSON, no markdown.`;
       });
 
       if (!response.ok) {
-        const errText = await response.text();
-        request.log.error({ status: response.status, body: errText }, 'OpenAI API error');
-        return reply.status(502).send({
-          type: 'https://bugbuddy.app/errors/upstream-error',
-          title: 'OpenAI API error',
-          status: 502,
-          detail: `OpenAI returned ${response.status}`,
-        });
+        request.log.warn({ status: response.status }, 'OpenAI API error, falling back to heuristic summarizer');
+        return reply.send(summarizeStepsHeuristically(steps));
       }
 
       const data = await response.json() as {
@@ -128,11 +125,7 @@ Return ONLY valid JSON, no markdown.`;
 
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
-        return reply.status(502).send({
-          type: 'https://bugbuddy.app/errors/upstream-error',
-          title: 'AI returned unexpected format',
-          status: 502,
-        });
+        return reply.send(summarizeStepsHeuristically(steps));
       }
 
       const parsed = JSON.parse(jsonMatch[0]) as {
@@ -149,14 +142,66 @@ Return ONLY valid JSON, no markdown.`;
         stepsSummary: parsed.stepsSummary ?? '',
       });
     } catch (err) {
-      request.log.error({ err }, 'AI generation failed');
-      return reply.status(500).send({
-        type: 'https://bugbuddy.app/errors/internal-error',
-        title: 'AI generation failed',
-        status: 500,
-      });
+      request.log.error({ err }, 'AI generation failed, using heuristic summary');
+      return reply.send(summarizeStepsHeuristically(steps));
     }
   });
+
+// ─── Offline Heuristic Step Summarizer ────────────────────────────────────────
+
+type RawStepInput = { actionType?: string | undefined; elementLabel?: string | undefined; pageUrl?: string | undefined; valueMasked?: string | undefined };
+
+function summarizeStepsHeuristically(steps: RawStepInput[]): { title: string; description: string; suggestedSeverity: string; stepsSummary: string } {
+  if (steps.length === 0) {
+    return { title: 'User Bug Report', description: 'Bug report recorded via BugBuddy.', suggestedSeverity: 'P2', stepsSummary: '1. Navigate to target URL.' };
+  }
+
+  const consolidated: string[] = [];
+  let currentGroupType: string | null = null;
+  let currentTargetLabel: string | null = null;
+
+  for (const s of steps) {
+    const action = (s.actionType ?? 'click').toLowerCase();
+    const label = s.elementLabel ? s.elementLabel.trim() : 'element';
+    const val = s.valueMasked && s.valueMasked !== '[REDACTED]' ? ` "${s.valueMasked}"` : '';
+
+    if (action.includes('input') || action.includes('change') || action.includes('type')) {
+      if (currentGroupType === 'input' && currentTargetLabel === label) {
+        continue;
+      }
+      currentGroupType = 'input';
+      currentTargetLabel = label;
+      consolidated.push(`Enter${val} into "${label}" field`);
+    } else if (action.includes('click')) {
+      if (currentGroupType === 'click' && currentTargetLabel === label) {
+        continue;
+      }
+      currentGroupType = 'click';
+      currentTargetLabel = label;
+      consolidated.push(`Click on "${label}"`);
+    } else if (action.includes('navigate') || action.includes('url')) {
+      currentGroupType = 'navigate';
+      currentTargetLabel = s.pageUrl ?? label;
+      consolidated.push(`Navigate to ${s.pageUrl ?? label}`);
+    } else {
+      currentGroupType = null;
+      currentTargetLabel = null;
+      consolidated.push(`Perform ${action} on "${label}"`);
+    }
+  }
+
+  const finalSteps = consolidated.slice(0, 10);
+  const stepsSummary = finalSteps.map((step, idx) => `${idx + 1}. ${step}`).join('\n');
+  const lastStep = steps[steps.length - 1];
+  const lastAction = lastStep?.elementLabel ? `on "${lastStep.elementLabel}"` : '';
+
+  return {
+    title: `Issue encountered during interaction ${lastAction}`,
+    description: `Recorded session containing ${steps.length} interaction steps leading to an issue ${lastAction}.`,
+    suggestedSeverity: 'P2',
+    stepsSummary,
+  };
+}
 
   /**
    * POST /v1/ai/triage
@@ -241,7 +286,7 @@ Return ONLY valid JSON, no markdown.`;
       };
     };
 
-    const apiKey = config.OPENAI_API_KEY;
+    const apiKey = body.data.userOpenAiKey?.trim() || config.OPENAI_API_KEY;
     if (!apiKey) {
       return reply.send(runHeuristicTriage());
     }

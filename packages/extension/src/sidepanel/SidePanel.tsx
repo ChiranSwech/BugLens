@@ -769,7 +769,8 @@ export const SidePanel: React.FC = () => {
       if (res?.issueKey) {
         setJiraResult({ type: 'success', message: `Successfully created issue: ${res.issueKey}` });
       } else {
-        setJiraResult({ type: 'error', message: res?.detail || 'Failed to dispatch to Jira. Check backend configuration.' });
+        const errMsg = res?.detail || res?.error || 'Failed to dispatch to Jira. Check backend configuration.';
+        setJiraResult({ type: 'error', message: errMsg });
       }
     } catch (err: any) {
       setJiraResult({ type: 'error', message: err.message || 'Failed to dispatch to Jira.' });
