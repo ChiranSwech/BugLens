@@ -7,6 +7,7 @@
     "dev": "turbo run dev --parallel",
     "build": "turbo run build",
     "build:extension": "pnpm --filter @bugbuddy/extension build",
+    "pack:extension": "pnpm run build:extension && powershell -Command \"Compress-Archive -Path 'packages/extension/dist/*' -DestinationPath 'bugbuddy-extension-v0.1.0.zip' -Force\"",
     "build:backend": "pnpm --filter @bugbuddy/backend build",
     "build:shared": "pnpm --filter @bugbuddy/shared build",
     "build:web": "pnpm --filter @bugbuddy/web build",
