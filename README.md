@@ -11,10 +11,12 @@ BugBuddy is a modern, enterprise-grade bug recording, session replay, and automa
   - **Source PII Masking**: Automatically redacts passwords, credit card numbers, email fields, and `data-pii` attributes before events leave the browser.
   - **Visual Screenshot Annotator**: Built-in canvas annotator supporting highlights, callout arrows, custom text labels, and redaction blurring.
   - **Persistent Authentication**: Saved RS256 access & refresh tokens in local extension storage ensure users stay logged in across browser restarts.
+  - **🔑 Bring Your Own Keys (BYOK)**: Users can configure their personal OpenAI API key, Jira base URL, email, API token, and project key directly in Extension Settings — zero API costs for the host platform!
 - **▶ Interactive Session Replay & WebM Video Export**:
   - **Visual Timeline Scrubber**: Playback captured session timelines step-by-step with play/pause, step controls, and speed selectors (`0.5x`, `1x`, `2x`, `4x`).
   - **🎥 WebM Session Video Generator**: Render session steps, screenshot overlays, and timestamps into downloadable `.webm` video recordings directly from the extension.
-- **🧠 AI Root-Cause Triage & Stacktrace Analysis**:
+- **🧠 AI Root-Cause Triage & LLM Step Consolidation**:
+  - **AI LLM Step Summarizer**: Automatically consolidates 50+ raw recorded micro-events into a clean 4-to-8 step reproduction list without losing key context, input parameters, or button targets.
   - **Dual Triage Engine**: Combines OpenAI GPT-4o-mini server-side analysis with an offline **Heuristic Triage Engine** fallback.
   - **Stacktrace & Log Analysis**: Parses failed HTTP network requests (4xx/5xx) and uncaught console exceptions to diagnose root cause, affected components (`FRONTEND`, `BACKEND`, `EXTERNAL_API`), and recommended code fixes.
 - **🔌 Enterprise Integrations & Export**:
@@ -29,6 +31,8 @@ The repository is structured as a `pnpm` workspace monorepo managed by **Turbo R
 
 ```
 BugBuddy/
+├── bugbuddy-extension.crx     # Official Chrome extension binary file
+├── bugbuddy-extension-v0.1.0.zip # Shareable team distribution archive
 ├── packages/
 │   ├── shared/       # Shared TypeScript schemas (Zod), DTO types, & enums
 │   ├── backend/      # Fastify API server, Auth, AI routes, PostgreSQL pool, & BullMQ workers
@@ -67,7 +71,7 @@ pnpm install
 
 ### 2. Configure Environment Variables
 
-Copy `.env.example` to `.env` in the root directory:
+Copy `.env.example` to `.env` in the backend directory or root directory:
 
 ```bash
 cp .env.example .env
@@ -92,64 +96,71 @@ GOOGLE_CLIENT_SECRET=your_client_secret
 SESSION_SECRET=a_random_64_character_hex_string_here
 ENCRYPTION_KEY=a_random_32_byte_hex_string_here
 
-# OpenAI API Key (Optional — fallback heuristic triage runs if blank)
+# OpenAI API Key (Optional — users can also provide their personal key in Extension Settings)
 OPENAI_API_KEY=sk-...
 
-# Integrations (Optional)
+# Integrations (Optional — users can also configure their personal keys in Extension Settings)
 JIRA_BASE_URL=https://yourcompany.atlassian.net
+JIRA_EMAIL=your-email@company.com
 JIRA_API_TOKEN=your_jira_token
 JIRA_PROJECT_KEY=BUG
 ```
 
-### 3. Start Infrastructure Services
+> 💡 **Render.com Hosting Note**: If your backend is hosted on Render, add these variables in your **Render Dashboard** → **Environment Variables**. Local `.env` files are not read by Render servers.
 
-You can launch PostgreSQL, Redis, and MinIO using Docker Compose:
+---
 
-```bash
-docker-compose -f docker-compose.dev.yml up -d
-```
+## 📦 Building & Packaging Chrome Extension Bundles
 
-### 4. Build Commands & Generating Local Chrome Extension
+BugBuddy includes automated CLI commands for building local dist folders, official `.crx` extension binary files, and shareable `.zip` distribution archives for team distribution.
 
-#### Generate Local Chrome Extension Only
-To build the Chrome Extension dist bundle locally:
+### 1. Generate Local Chrome Extension Directory
+Builds the compiled Chrome Extension dist bundle:
 
 ```bash
 pnpm run build:extension
 ```
-*Output build directory*: `packages/extension/dist`
+*Output directory*: `packages/extension/dist`
 
-#### Extension Watch Mode (Live Rebuild during development)
-To automatically rebuild the extension whenever you make changes to extension files:
+### 2. Generate Official Chrome `.crx` Binary File
+Packages an official signed Chrome Extension binary file for drag-and-drop installation:
+
+```bash
+pnpm run pack:crx
+```
+*Output file*: `bugbuddy-extension.crx` (in root directory)
+
+### 3. Generate Shareable Team `.zip` Bundle
+Creates a compressed ZIP archive suitable for unzipping and sharing across team members:
+
+```bash
+pnpm run pack:extension
+```
+*Output file*: `bugbuddy-extension-v0.1.0.zip` (in root directory)
+
+### 4. Extension Watch Mode (Live Rebuild during development)
+Automatically rebuilds extension files whenever you edit source code:
 
 ```bash
 pnpm --filter @bugbuddy/extension dev
 ```
 
-#### Build All Workspace Packages
-To compile all monorepo packages (`shared`, `backend`, `extension`, `web`):
-
-```bash
-pnpm run build
-```
-
-### 5. Start Backend API & Extension Development Servers
-
-```bash
-pnpm run dev
-```
-
-The Fastify backend server starts at `http://localhost:8080`.
-
 ---
 
-## 🧩 Loading the Local Chrome Extension into Browser
+## 🧩 Installing the Extension in Chrome
 
-1. Open **Google Chrome** and navigate to `chrome://extensions`.
-2. Enable **Developer mode** in the top-right toggle switch.
-3. Click **Load unpacked**.
-4. Select the directory: `<path-to-repo>/packages/extension/dist`.
-5. The **BugBuddy** extension icon will now appear in your browser toolbar.
+### Option A: Install via Official `.crx` File
+1. Open Google Chrome and navigate to `chrome://extensions`.
+2. Enable **Developer mode** using the toggle switch in the top-right corner.
+3. Drag and drop **`bugbuddy-extension.crx`** directly onto the `chrome://extensions` browser window.
+4. Click **Add Extension** on the Chrome confirmation prompt.
+
+### Option B: Install via Unpacked Directory / ZIP
+1. Extract `bugbuddy-extension-v0.1.0.zip` into a folder on your computer (or build `packages/extension/dist`).
+2. Open Google Chrome and navigate to `chrome://extensions`.
+3. Enable **Developer mode** in the top-right corner.
+4. Click **Load unpacked** in the top-left corner.
+5. Select the `packages/extension/dist` folder (or extracted ZIP folder).
 
 ---
 
@@ -158,36 +169,41 @@ The Fastify backend server starts at `http://localhost:8080`.
 ### 1. Log In via Extension
 - Click the **BugBuddy** extension icon to open the popup interface.
 - Click **Continue with Google**.
-- Complete the Google OAuth login window. Once authenticated, your session persists across browser restarts.
+- Complete Google OAuth login. Credentials remain persistent across browser restarts.
 
-### 2. Record a Test Session
+### 2. Configure Personal Integration Keys (BYOK - Optional)
+- Click the **Settings (gear icon ⚙️)** in the extension popup.
+- Enter your personal **OpenAI API Key**, **Jira Base URL**, **Jira Email**, **Jira API Token**, and **Jira Project Key**.
+- Click **Save Configuration**. BugBuddy will use your personal keys for AI generation and Jira dispatching.
+
+### 3. Record a Test Session
 - Navigate to any web application you want to test.
 - Click **● Start Recording** in the extension popup.
 - Perform interactions on the page (clicks, input entries, navigations).
 - *Hotkeys*:
-  - `Ctrl + I`: Manually capture a screenshot at the current step.
+  - `Ctrl + I`: Manually capture a screenshot at current step.
   - `Ctrl + Shift + P`: Pause / Resume recording.
 - Click **■ Stop & Review** to finish recording and open the Review SidePanel.
 
-### 3. Interactive Session Replay & WebM Export
+### 4. Interactive Session Replay & WebM Export
 - Open the SidePanel and select the **▶ Replay** tab.
 - Use **Play / Pause**, **Prev / Next Step**, or speed toggles (`0.5x`, `1x`, `2x`, `4x`) to review visual step progression.
 - Drag the timeline scrubber to jump directly to any step.
 - Click **🎥 Export WebM Video** to generate and download a smooth WebM video file of the session.
 
-### 4. Run AI Root-Cause Triage
-- Open the **Report** or **Timeline** tab in the SidePanel.
-- Click **⚡ Run Root Cause Triage**.
+### 5. Run AI Root-Cause Triage & Step Summarizer
+- Click **✨ Generate AI Summary** in the SidePanel. The LLM Summarizer automatically condenses 50+ raw events into a clean 4-to-8 step reproduction list.
+- Open the **Report** or **Timeline** tab and click **⚡ Run Root Cause Triage**.
 - The AI Triage Engine analyzes network failures, console stack traces, and steps to output:
   - Primary Root Cause
   - Affected Component (`FRONTEND`, `BACKEND`, `EXTERNAL_API`)
   - Detailed Technical Summary
   - Recommended Code Fix
 
-### 5. Submit Bug Report & Export Integrations
+### 6. Submit Bug Report & Export Integrations
 - Fill out the Title, Description, Expected Result, and Actual Result.
 - Select Bug Severity (`P0` - `P4`).
-- *(Optional)* Toggle integrations (**Jira**, **Slack**, **Azure DevOps**) to dispatch the bug directly to your project management tools.
+- Click **Dispatch to Jira**, **Azure DevOps**, or **Slack**.
 - Click **📄 Export HTML** or **📕 Export PDF** for standalone local downloads.
 - Click **🐛 Submit Bug Report** to send the report to the BugBuddy backend platform.
 
@@ -197,6 +213,8 @@ The Fastify backend server starts at `http://localhost:8080`.
 
 | Command | Action / Description |
 | :--- | :--- |
+| **`pnpm run pack:crx`** | **Package official signed Chrome Extension binary (`bugbuddy-extension.crx`)** |
+| **`pnpm run pack:extension`** | **Package shareable team ZIP archive (`bugbuddy-extension-v0.1.0.zip`)** |
 | **`pnpm run build:extension`** | **Build local Chrome Extension bundle to `packages/extension/dist`** |
 | `pnpm --filter @bugbuddy/extension dev` | Watch mode: auto-rebuild Chrome extension on file changes |
 | `pnpm run build:backend` | Build backend API server to `packages/backend/dist` |
@@ -215,4 +233,5 @@ The Fastify backend server starts at `http://localhost:8080`.
 
 - **Isolated Execution**: Content scripts run in isolated JS worlds and never expose internal DOM nodes to unauthenticated context.
 - **Client-Side Masking**: All PII (passwords, emails, credit cards) is masked at the source in content scripts before being sent to background workers or servers.
+- **BYOK Encryption**: Personal API keys and tokens are stored locally in `chrome.storage.local` and transmitted only to user-authorized API endpoints.
 - **JWT Key Persistence**: Backend uses RS256 keypairs generated and stored securely in persistent container volumes.
