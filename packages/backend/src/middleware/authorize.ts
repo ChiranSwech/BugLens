@@ -1,5 +1,5 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
-import type { UserRole } from '@bugbuddy/shared';
+import type { UserRole } from '@buglens/shared';
 
 const ROLE_HIERARCHY: Record<UserRole, number> = {
   viewer: 0,

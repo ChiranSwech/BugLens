@@ -106,7 +106,7 @@ export async function authRoutes(app: FastifyInstance) {
         sub: user.id,
         email: user.email,
         name: user.name,
-        role: user.role as import('@bugbuddy/shared').UserRole,
+        role: user.role as import('@buglens/shared').UserRole,
         orgId: user.org_id,
       });
       const refreshToken = await issueRefreshToken(user.id);
@@ -186,7 +186,7 @@ export async function authRoutes(app: FastifyInstance) {
       sub: user.id,
       email: user.email,
       name: user.name,
-      role: user.role as import('@bugbuddy/shared').UserRole,
+      role: user.role as import('@buglens/shared').UserRole,
       orgId: user.org_id,
     });
 

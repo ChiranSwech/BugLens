@@ -1,6 +1,6 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { verifyAccessToken } from '../auth/jwt.js';
-import type { JwtPayload } from '@bugbuddy/shared';
+import type { JwtPayload } from '@buglens/shared';
 
 // Augment Fastify's request type with our user
 declare module 'fastify' {

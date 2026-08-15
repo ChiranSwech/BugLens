@@ -28,7 +28,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
-      '@bugbuddy/shared': resolve(__dirname, '../../packages/shared/src/index.ts'),
+      '@buglens/shared': resolve(__dirname, '../../packages/shared/src/index.ts'),
     },
   },
 });

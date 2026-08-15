@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  transpilePackages: ['@bugbuddy/shared'],
+  transpilePackages: ['@buglens/shared'],
 };
 
 export default nextConfig;

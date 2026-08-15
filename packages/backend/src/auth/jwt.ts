@@ -5,7 +5,7 @@ import { readFile, writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { config } from '../config.js';
-import type { JwtPayload } from '@bugbuddy/shared';
+import type { JwtPayload } from '@buglens/shared';
 
 const KEY_DIR = config.JWT_KEYS_DIR;
 const PRIVATE_KEY_PATH = join(KEY_DIR, 'private.pem');
@@ -56,16 +56,16 @@ export async function signAccessToken(
     .setJti(randomUUID())
     .setIssuedAt()
     .setExpirationTime('15m')
-    .setIssuer('bugbuddy')
-    .setAudience('bugbuddy-api')
+    .setIssuer('buglens')
+    .setAudience('buglens-api')
     .sign(privateKey);
 }
 
 /** Verifies an access JWT and returns the typed payload. */
 export async function verifyAccessToken(token: string): Promise<JwtPayload> {
   const { payload } = await jwtVerify(token, publicKey, {
-    issuer: 'bugbuddy',
-    audience: 'bugbuddy-api',
+    issuer: 'buglens',
+    audience: 'buglens-api',
     algorithms: ['RS256'],
   });
   return payload as unknown as JwtPayload;

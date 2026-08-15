@@ -6,7 +6,7 @@ import { authorize } from '../middleware/authorize.js';
 import { auditLog } from '../middleware/audit.js';
 import { query, withTransaction } from '../db/pool.js';
 import { config } from '../config.js';
-import { CreateBugSchema, UpdateBugSchema, BugListQuerySchema } from '@bugbuddy/shared';
+import { CreateBugSchema, UpdateBugSchema, BugListQuerySchema } from '@buglens/shared';
 import { piiQueue, integrationQueue } from '../workers/queues.js';
 
 export async function bugRoutes(app: FastifyInstance) {

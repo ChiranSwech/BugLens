@@ -11,7 +11,7 @@
  *  - Offline event queue with reconnect flushing
  */
 
-import type { CreateSession } from '@bugbuddy/shared';
+import type { CreateSession } from '@buglens/shared';
 
 const DEFAULT_API_BASE = 'http://localhost:8080';
 let API_BASE = DEFAULT_API_BASE;

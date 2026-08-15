@@ -7,7 +7,7 @@
  * All functions return a typed result or throw with a descriptive error.
  */
 
-import type { CreateSession } from '@bugbuddy/shared';
+import type { CreateSession } from '@buglens/shared';
 
 // ─── Generic message sender ───────────────────────────────────────────────────
 

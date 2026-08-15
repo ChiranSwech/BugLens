@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { authenticate } from '../middleware/authenticate.js';
 import { auditLog } from '../middleware/audit.js';
 import { query } from '../db/pool.js';
-import { CreateSessionSchema, UpdateSessionSchema, AppendEventsSchema } from '@bugbuddy/shared';
+import { CreateSessionSchema, UpdateSessionSchema, AppendEventsSchema } from '@buglens/shared';
 
 export async function sessionRoutes(app: FastifyInstance) {
   // ─── Start a recording session ─────────────────────────────────────────────

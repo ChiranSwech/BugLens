@@ -3,8 +3,8 @@ import { Client as MinioClient } from 'minio';
 import { randomUUID } from 'crypto';
 import { authenticate } from '../middleware/authenticate.js';
 import { query } from '../db/pool.js';
-import { PresignRequestSchema, UploadConfirmSchema } from '@bugbuddy/shared';
-import { isDuplicate } from '@bugbuddy/shared';
+import { PresignRequestSchema, UploadConfirmSchema } from '@buglens/shared';
+import { isDuplicate } from '@buglens/shared';
 import { config } from '../config.js';
 
 const minio = new MinioClient({

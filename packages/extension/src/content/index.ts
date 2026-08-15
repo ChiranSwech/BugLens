@@ -19,7 +19,7 @@
  *    in place rather than creating duplicate entries.
  */
 
-import type { StepActionType } from '@bugbuddy/shared';
+import type { StepActionType } from '@buglens/shared';
 
 // ─── PII masking ──────────────────────────────────────────────────────────────
 

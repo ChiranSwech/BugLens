@@ -19,8 +19,8 @@ COPY packages/shared ./packages/shared
 COPY packages/backend ./packages/backend
 
 # Build shared first, then backend
-RUN pnpm --filter @bugbuddy/shared build
-RUN pnpm --filter @bugbuddy/backend build
+RUN pnpm --filter @buglens/shared build
+RUN pnpm --filter @buglens/backend build
 
 # ─── Stage 2: Production API ──────────────────────────────────────────────────
 FROM node:24-alpine AS production
@@ -44,10 +44,10 @@ COPY --from=builder /app/packages/backend/dist ./packages/backend/dist
 COPY packages/backend/db ./packages/backend/db
 
 # Create non-root user (never run as root in production)
-RUN addgroup -g 1001 bugbuddy && adduser -u 1001 -G bugbuddy -s /bin/sh -D bugbuddy
-RUN mkdir -p /app/keys && chown bugbuddy:bugbuddy /app/keys
+RUN addgroup -g 1001 buglens && adduser -u 1001 -G buglens -s /bin/sh -D buglens
+RUN mkdir -p /app/keys && chown buglens:buglens /app/keys
 
-USER bugbuddy
+USER buglens
 
 EXPOSE 3001
 
