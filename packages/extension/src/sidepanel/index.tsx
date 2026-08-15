@@ -23,7 +23,7 @@ class ErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('[BugBuddy SidePanel] Uncaught error:', error, errorInfo);
+    console.error('[BugLens SidePanel] Uncaught error:', error, errorInfo);
   }
 
   public render() {

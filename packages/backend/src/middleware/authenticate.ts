@@ -21,7 +21,7 @@ export async function authenticate(
 
   if (!authHeader?.startsWith('Bearer ')) {
     return reply.status(401).send({
-      type: 'https://bugbuddy.app/errors/unauthorized',
+      type: 'https://buglens.app/errors/unauthorized',
       title: 'Authentication required',
       status: 401,
     });
@@ -35,7 +35,7 @@ export async function authenticate(
   } catch {
     // Never expose token error details (expired, invalid signature, etc.)
     return reply.status(401).send({
-      type: 'https://bugbuddy.app/errors/unauthorized',
+      type: 'https://buglens.app/errors/unauthorized',
       title: 'Authentication required',
       status: 401,
     });

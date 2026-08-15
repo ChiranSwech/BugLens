@@ -75,7 +75,7 @@ async function compressScreenshot(
         const compressed = canvas.toDataURL('image/jpeg', quality);
         const approxBytes = Math.round((compressed.length * 3) / 4);
         if (approxBytes > maxBytes) {
-          console.warn(`[BugBuddy] Screenshot too large after compression (${approxBytes} bytes), skipping`);
+          console.warn(`[BugLens] Screenshot too large after compression (${approxBytes} bytes), skipping`);
           resolve(null);
           return;
         }
@@ -131,7 +131,21 @@ export const SidePanel: React.FC = () => {
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [customApiUrl, setCustomApiUrl] = useState('http://localhost:8080');
+  const [customApiUrl, setCustomApiUrl] = useState('');
+
+  useEffect(() => {
+    chrome.storage.local.get(['customApiBase', 'customApiUrl'], (res) => {
+      if (res?.customApiBase) setCustomApiUrl(res.customApiBase);
+      else if (res?.customApiUrl) setCustomApiUrl(res.customApiUrl);
+    });
+  }, []);
+
+  const handleSaveSettings = useCallback(() => {
+    const cleanUrl = customApiUrl.trim();
+    chrome.storage.local.set({ customApiBase: cleanUrl, customApiUrl: cleanUrl }, () => {
+      setShowSettings(false);
+    });
+  }, [customApiUrl]);
   // Integration toggles
   const [jiraChecked, setJiraChecked] = useState(false);
   const [jiraIssueType, setJiraIssueType] = useState<'Bug' | 'Task' | 'Story' | 'Improvement'>('Bug');
@@ -202,7 +216,7 @@ export const SidePanel: React.FC = () => {
     setError(null);
     try {
       const payload = {
-        steps,
+        steps: events,
         networkLogs: networkLogs.filter(n => n.failed || (n.status && n.status >= 400)),
         consoleLogs: consoleLogs.filter(c => c.type === 'error' || c.type === 'exception'),
         bugUrl,
@@ -316,7 +330,7 @@ export const SidePanel: React.FC = () => {
 
       mediaRecorder.stop();
     } catch (err) {
-      console.error('[BugBuddy] Export video error:', err);
+      console.error('[BugLens] Export video error:', err);
       setIsExportingVideo(false);
     }
   };
@@ -390,13 +404,6 @@ export const SidePanel: React.FC = () => {
   useEffect(() => {
     loadData();
 
-    // Load custom API URL from storage
-    chrome.storage.local.get(['customApiBase'], (res) => {
-      if (res.customApiBase) {
-        setCustomApiUrl(res.customApiBase);
-      }
-    });
-
     // Listen for live updates
     const handler = (msg: any) => {
       if (msg.type === 'SCREENSHOT_TAKEN') {
@@ -433,13 +440,7 @@ export const SidePanel: React.FC = () => {
     });
   };
 
-  const handleSaveSettings = () => {
-    const cleanUrl = customApiUrl.trim().replace(/\/$/, '');
-    chrome.storage.local.set({ customApiBase: cleanUrl || 'http://localhost:8080' }, () => {
-      setShowSettings(false);
-      setError(null);
-    });
-  };
+
 
   // ── Capture screenshot for a step ────────────────────────────────────────
   const captureForStep = async (stepIndex: number) => {
@@ -1041,24 +1042,53 @@ export const SidePanel: React.FC = () => {
     .brand {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 12px;
+      color: var(--text);
     }
     
     .brand-logo-svg {
-      width: 18px;
-      height: 18px;
-      color: #818cf8;
+      width: 36px;
+      height: 36px;
+      min-width: 36px;
+      min-height: 36px;
       flex-shrink: 0;
+      overflow: visible;
+      vertical-align: middle;
     }
 
-    .brand-text {
-      font-size: 14px;
-      font-weight: 700;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      background: linear-gradient(135deg, #818cf8 0%, #c084fc 100%);
+    .brand-title {
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      line-height: 1;
+    }
+
+    .brand-text-mono {
+      color: var(--text, #f9fafb);
+      transition: color 0.2s ease;
+    }
+
+    .brand-text-gradient {
+      color: #818cf8;
+      background: linear-gradient(135deg, #818cf8 0%, #c084fc 50%, #f43f5e 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
+      margin-left: 3px;
+    }
+
+    .brand-report-badge {
+      background: rgba(129, 140, 248, 0.15);
+      color: #818cf8;
+      border: 1px solid rgba(129, 140, 248, 0.3);
+      border-radius: 6px;
+      padding: 3px 8px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-left: 10px;
     }
 
     .header-info {
@@ -1580,21 +1610,41 @@ export const SidePanel: React.FC = () => {
     @media print {
       body {
         background: white !important;
-        color: black !important;
+        color: #0f172a !important;
       }
       .page-container {
         padding: 0 !important;
         gap: 20px !important;
       }
       .details-section, .tabs-section, .section-card, .device-item {
-        border-color: #ddd !important;
+        border-color: #e2e8f0 !important;
         background: white !important;
         box-shadow: none !important;
       }
-      * {
-        color: black !important;
-        text-shadow: none !important;
-        box-shadow: none !important;
+      /* Ensure brand header and logo render with 100% full colors & visibility in PDF print */
+      .brand-logo-svg {
+        width: 36px !important;
+        height: 36px !important;
+        min-width: 36px !important;
+        min-height: 36px !important;
+        overflow: visible !important;
+      }
+      .brand-text-mono {
+        color: #0f172a !important;
+        -webkit-text-fill-color: #0f172a !important;
+      }
+      .brand-text-gradient {
+        background: none !important;
+        -webkit-background-clip: unset !important;
+        background-clip: unset !important;
+        -webkit-text-fill-color: #818cf8 !important;
+        color: #818cf8 !important;
+      }
+      .brand-report-badge {
+        background: #f1f5f9 !important;
+        color: #6366f1 !important;
+        border: 1px solid #c7d2fe !important;
+        -webkit-text-fill-color: #6366f1 !important;
       }
       .tab-btn-bar { display: none !important; }
       .tab-content { padding: 0 !important; }
@@ -1631,19 +1681,34 @@ export const SidePanel: React.FC = () => {
     <!-- Test Details Main Section -->
     <section class="details-section">
       <div class="brand">
-        <svg class="brand-logo-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="6" y="8" width="12" height="11" rx="4" />
-          <path d="M12 8V4" />
-          <path d="M9 12h6" />
-          <path d="M9 4.5a3 3 0 0 1 6 0" />
-          <path d="M4 10h2" />
-          <path d="M18 10h2" />
-          <path d="M3 14h3" />
-          <path d="M18 14h3" />
-          <path d="M4 18h2" />
-          <path d="M18 18h2" />
+        <svg class="brand-logo-svg" width="36" height="36" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="rpt-buglens-ring-grad" x1="10" y1="10" x2="85" y2="85" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#f43f5e" />
+              <stop offset="40%" stop-color="#ec4899" />
+              <stop offset="75%" stop-color="#a855f7" />
+              <stop offset="100%" stop-color="#6366f1" />
+            </linearGradient>
+            <linearGradient id="rpt-buglens-bug-right-grad" x1="45" y1="25" x2="65" y2="65" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#ec4899" />
+              <stop offset="100%" stop-color="#f43f5e" />
+            </linearGradient>
+          </defs>
+          <path d="M 45 12 A 32 32 0 1 0 72 61 L 88 77 A 5 5 0 0 0 95 70 L 79 54 A 32 32 0 0 0 45 12 Z M 45 20 A 24 24 0 1 1 21 44 A 24 24 0 0 1 45 20 Z" fill="url(#rpt-buglens-ring-grad)" />
+          <path d="M 68 58 L 74 64 L 70 68 L 64 62 Z" fill="#a855f7" opacity="0.8" />
+          <path d="M 39 30 Q 36 24 33 22" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" />
+          <path d="M 51 30 Q 54 24 57 22" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" />
+          <path d="M 33 38 H 27 M 31 44 H 25 M 34 50 H 28" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" />
+          <path d="M 57 38 H 63 M 59 44 H 65 M 56 50 H 62" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" />
+          <path d="M 45 29 C 37 29 34 35 34 44 C 34 53 37 59 45 59 Z" fill="currentColor" />
+          <path d="M 45 29 C 53 29 56 35 56 44 C 56 53 53 59 45 59 Z" fill="url(#rpt-buglens-bug-right-grad)" />
+          <path d="M 40 31 C 40 28 50 28 50 31 Z" fill="currentColor" />
         </svg>
-        <span class="brand-text">BugLens Report</span>
+        <div class="brand-title">
+          <span class="brand-text-mono">Bug</span>
+          <span class="brand-text-gradient">Lens</span>
+          <span class="brand-report-badge">Report</span>
+        </div>
       </div>
 
       <div class="header-info">

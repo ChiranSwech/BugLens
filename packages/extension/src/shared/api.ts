@@ -1,5 +1,5 @@
 /**
- * BugBuddy — Extension Typed API Client
+ * BugLens — Extension Typed API Client
  *
  * Provides strongly-typed async wrappers around chrome.runtime.sendMessage
  * so that popup, sidepanel, and devtools never send raw message strings.

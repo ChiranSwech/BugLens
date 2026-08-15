@@ -46,14 +46,14 @@ export default function Home() {
     const urlToken = urlParams.get('access_token');
 
     if (urlToken) {
-      localStorage.setItem('bugbuddy_token', urlToken);
+      localStorage.setItem('buglens_token', urlToken);
       setToken(urlToken);
       // Clean up URL without refreshing
       const newUrl = window.location.pathname;
       window.history.replaceState({}, document.title, newUrl);
     } else {
       // 2. Check for existing token in localStorage
-      const savedToken = localStorage.getItem('bugbuddy_token');
+      const savedToken = localStorage.getItem('buglens_token') || localStorage.getItem('bugbuddy_token');
       if (savedToken) {
         setToken(savedToken);
       }
@@ -130,6 +130,7 @@ export default function Home() {
   };
 
   const handleLogout = () => {
+    localStorage.removeItem('buglens_token');
     localStorage.removeItem('bugbuddy_token');
     setToken(null);
     setBugs([]);

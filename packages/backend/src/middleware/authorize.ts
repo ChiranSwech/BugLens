@@ -20,7 +20,7 @@ export function authorize(minRole: UserRole) {
 
     if (!userRole || ROLE_HIERARCHY[userRole] < ROLE_HIERARCHY[minRole]) {
       return reply.status(403).send({
-        type: 'https://bugbuddy.app/errors/forbidden',
+        type: 'https://buglens.app/errors/forbidden',
         title: 'Insufficient permissions',
         status: 403,
         detail: `This action requires the '${minRole}' role or higher.`,

@@ -53,7 +53,7 @@ export async function authRoutes(app: FastifyInstance) {
 
       if (error || !code) {
         return reply.status(400).send({
-          type: 'https://bugbuddy.app/errors/oauth-error',
+          type: 'https://buglens.app/errors/oauth-error',
           title: 'OAuth Error',
           status: 400,
           detail: error ?? 'No authorization code received',
@@ -76,7 +76,7 @@ export async function authRoutes(app: FastifyInstance) {
       if (!tokenResponse.ok) {
         request.log.error({ status: tokenResponse.status }, 'Google token exchange failed');
         return reply.status(502).send({
-          type: 'https://bugbuddy.app/errors/oauth-exchange-failed',
+          type: 'https://buglens.app/errors/oauth-exchange-failed',
           title: 'Authentication Failed',
           status: 502,
         });
@@ -91,7 +91,7 @@ export async function authRoutes(app: FastifyInstance) {
 
       if (!userInfoResponse.ok) {
         return reply.status(502).send({
-          type: 'https://bugbuddy.app/errors/userinfo-failed',
+          type: 'https://buglens.app/errors/userinfo-failed',
           title: 'Failed to retrieve user profile',
           status: 502,
         });
@@ -155,7 +155,7 @@ export async function authRoutes(app: FastifyInstance) {
     const refreshToken = bodyToken || request.cookies['refresh_token'];
     if (!refreshToken) {
       return reply.status(401).send({
-        type: 'https://bugbuddy.app/errors/no-refresh-token',
+        type: 'https://buglens.app/errors/no-refresh-token',
         title: 'Unauthorized',
         status: 401,
       });
@@ -166,7 +166,7 @@ export async function authRoutes(app: FastifyInstance) {
       // Token invalid or expired — force re-login
       reply.clearCookie('refresh_token', COOKIE_OPTS);
       return reply.status(401).send({
-        type: 'https://bugbuddy.app/errors/invalid-refresh-token',
+        type: 'https://buglens.app/errors/invalid-refresh-token',
         title: 'Session expired. Please log in again.',
         status: 401,
       });

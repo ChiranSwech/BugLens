@@ -1,5 +1,5 @@
 /**
- * BugBuddy — Service Worker (Background Script)
+ * BugLens — Service Worker (Background Script)
  *
  * Responsibilities:
  *  - Google OAuth login via chrome.identity
@@ -13,14 +13,14 @@
 
 import type { CreateSession } from '@buglens/shared';
 
-const DEFAULT_API_BASE = 'http://localhost:8080';
+const DEFAULT_API_BASE = (import.meta.env.VITE_API_BASE_URL as string) || 'http://localhost:8080';
 let API_BASE = DEFAULT_API_BASE;
 
 // Load stored API base on startup
 chrome.storage.local.get(['customApiBase'], (result) => {
   if (result.customApiBase) {
     API_BASE = result.customApiBase;
-    console.log('[BugBuddy] Configured API Base URL:', API_BASE);
+    console.log('[BugLens] Configured API Base URL:', API_BASE);
   }
 });
 
@@ -28,7 +28,7 @@ chrome.storage.local.get(['customApiBase'], (result) => {
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName === 'local' && changes.customApiBase) {
     API_BASE = changes.customApiBase.newValue || DEFAULT_API_BASE;
-    console.log('[BugBuddy] API Base URL updated to:', API_BASE);
+    console.log('[BugLens] API Base URL updated to:', API_BASE);
   }
 });
 
@@ -419,7 +419,7 @@ async function captureScreenshot(tabId?: number, overrideStepIndex?: number): Pr
 
     return { dataUrl, stepIndex };
   } catch (err) {
-    console.error('[BugBuddy] Screenshot capture failed:', err);
+    console.error('[BugLens] Screenshot capture failed:', err);
     return { error: (err as Error).message };
   }
 }
@@ -491,7 +491,7 @@ async function annotateClickOnScreenshot(
       reader.readAsDataURL(annotatedBlob);
     });
   } catch (err) {
-    console.warn('[BugBuddy] Click annotation failed, using raw screenshot:', err);
+    console.warn('[BugLens] Click annotation failed, using raw screenshot:', err);
     return dataUrl;
   }
 }
@@ -527,7 +527,7 @@ async function processQueue(): Promise<void> {
       pendingScreenshots[eventId] = dataUrl;
     }
   } catch (err) {
-    console.error('[BugBuddy] Failed to capture queued screenshot:', err);
+    console.error('[BugLens] Failed to capture queued screenshot:', err);
   }
 
   // Wait 400ms to avoid Chrome screenshot rate limiting
@@ -549,9 +549,9 @@ async function attachDebugger(tabId: number): Promise<void> {
     await chrome.debugger.sendCommand({ tabId }, 'Network.enable', {});
     await chrome.debugger.sendCommand({ tabId }, 'Runtime.enable', {});
 
-    console.log(`[BugBuddy] Debugger attached to tab ${tabId} for network/console capture`);
+    console.log(`[BugLens] Debugger attached to tab ${tabId} for network/console capture`);
   } catch (err) {
-    console.warn('[BugBuddy] Could not attach debugger (network logs disabled):', err);
+    console.warn('[BugLens] Could not attach debugger (network logs disabled):', err);
     debuggerTabId = null;
   }
 }
@@ -695,7 +695,7 @@ chrome.commands.onCommand.addListener(async (command) => {
 
     const result = await captureScreenshot(tabId);
     if ('error' in result) {
-      console.error('[BugBuddy] Shortcut screenshot failed:', result.error);
+      console.error('[BugLens] Shortcut screenshot failed:', result.error);
     } else {
       // Notify content script to show visual flash
       chrome.tabs.sendMessage(tabId, { type: 'SCREENSHOT_FLASH' }).catch(() => { });

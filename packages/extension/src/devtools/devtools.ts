@@ -1,7 +1,7 @@
 /**
- * BugBuddy — DevTools Panel Script
+ * BugLens — DevTools Panel Script
  *
- * Creates a "BugBuddy" panel inside Chrome DevTools.
+ * Creates a "BugLens" panel inside Chrome DevTools.
  * When the panel is shown, it bridges the DevTools tab context
  * to the background service worker so network logs captured
  * via chrome.debugger are surfaced in a real panel UI.
@@ -9,7 +9,7 @@
 
 // Create the devtools panel
 chrome.devtools.panels.create(
-  'BugBuddy',
+  'BugLens',
   '', // no icon path — use text label
   'src/devtools/panel.html',
   (panel) => {
@@ -29,7 +29,7 @@ chrome.devtools.panels.create(
     chrome.runtime.onMessage.addListener((message) => {
       if (panelWindow && message.type === 'STEP_COUNT_UPDATED') {
         try {
-          (panelWindow as Window & { __bugbuddyUpdate?: (m: unknown) => void }).__bugbuddyUpdate?.(message);
+          (panelWindow as Window & { __buglensUpdate?: (m: unknown) => void; __bugbuddyUpdate?: (m: unknown) => void }).__buglensUpdate?.(message) ?? (panelWindow as Window & { __bugbuddyUpdate?: (m: unknown) => void }).__bugbuddyUpdate?.(message);
         } catch { /* panel may not be ready */ }
       }
     });

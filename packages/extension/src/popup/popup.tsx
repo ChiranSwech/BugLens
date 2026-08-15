@@ -24,26 +24,39 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [isRestrictedPage, setIsRestrictedPage] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [customApiUrl, setCustomApiUrl] = useState('http://localhost:8080');
   const [userOpenAiKey, setUserOpenAiKey] = useState('');
+  const [userClaudeKey, setUserClaudeKey] = useState('');
   const [userJiraUrl, setUserJiraUrl] = useState('');
   const [userJiraEmail, setUserJiraEmail] = useState('');
   const [userJiraToken, setUserJiraToken] = useState('');
   const [userJiraProject, setUserJiraProject] = useState('');
+  const [userSlackWebhook, setUserSlackWebhook] = useState('');
+  const [userSlackChannel, setUserSlackChannel] = useState('');
+  const [userAzureOrg, setUserAzureOrg] = useState('');
+  const [userAzureProject, setUserAzureProject] = useState('');
+  const [userAzurePat, setUserAzurePat] = useState('');
 
   useEffect(() => {
     // Immediately read persistent auth & BYOK state from chrome.storage.local
     chrome.storage.local.get([
-      'accessToken', 'refreshToken', 'user', 'customApiBase',
+      'accessToken', 'refreshToken', 'user',
       'currentSessionId', 'isPaused', 'stepCount',
-      'userOpenAiKey', 'userJiraUrl', 'userJiraEmail', 'userJiraToken', 'userJiraProject'
+      'userOpenAiKey', 'userClaudeKey',
+      'userJiraUrl', 'userJiraEmail', 'userJiraToken', 'userJiraProject',
+      'userSlackWebhook', 'userSlackChannel',
+      'userAzureOrg', 'userAzureProject', 'userAzurePat'
     ], (res) => {
-      if (res.customApiBase) setCustomApiUrl(res.customApiBase);
       if (res.userOpenAiKey) setUserOpenAiKey(res.userOpenAiKey);
+      if (res.userClaudeKey) setUserClaudeKey(res.userClaudeKey);
       if (res.userJiraUrl) setUserJiraUrl(res.userJiraUrl);
       if (res.userJiraEmail) setUserJiraEmail(res.userJiraEmail);
       if (res.userJiraToken) setUserJiraToken(res.userJiraToken);
       if (res.userJiraProject) setUserJiraProject(res.userJiraProject);
+      if (res.userSlackWebhook) setUserSlackWebhook(res.userSlackWebhook);
+      if (res.userSlackChannel) setUserSlackChannel(res.userSlackChannel);
+      if (res.userAzureOrg) setUserAzureOrg(res.userAzureOrg);
+      if (res.userAzureProject) setUserAzureProject(res.userAzureProject);
+      if (res.userAzurePat) setUserAzurePat(res.userAzurePat);
 
       if (res.accessToken || res.refreshToken || res.user) {
         setIsAuthenticated(true);
@@ -225,14 +238,18 @@ function App() {
   }, [recordingState]);
 
   const handleSaveSettings = useCallback(() => {
-    const cleanUrl = customApiUrl.trim().replace(/\/$/, '');
     chrome.storage.local.set({
-      customApiBase: cleanUrl || 'http://localhost:8080',
       userOpenAiKey: userOpenAiKey.trim(),
+      userClaudeKey: userClaudeKey.trim(),
       userJiraUrl: userJiraUrl.trim(),
       userJiraEmail: userJiraEmail.trim(),
       userJiraToken: userJiraToken.trim(),
       userJiraProject: userJiraProject.trim().toUpperCase(),
+      userSlackWebhook: userSlackWebhook.trim(),
+      userSlackChannel: userSlackChannel.trim(),
+      userAzureOrg: userAzureOrg.trim(),
+      userAzureProject: userAzureProject.trim(),
+      userAzurePat: userAzurePat.trim(),
     }, () => {
       setShowSettings(false);
       setError(null);
@@ -244,7 +261,12 @@ function App() {
         }
       });
     });
-  }, [customApiUrl, userOpenAiKey, userJiraUrl, userJiraEmail, userJiraToken, userJiraProject]);
+  }, [
+    userOpenAiKey, userClaudeKey,
+    userJiraUrl, userJiraEmail, userJiraToken, userJiraProject,
+    userSlackWebhook, userSlackChannel,
+    userAzureOrg, userAzureProject, userAzurePat
+  ]);
 
   if (showSettings) {
     return (
@@ -262,50 +284,56 @@ function App() {
         </header>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '4px 0' }}>
-          <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <label className="field-label" style={{ fontSize: '10px', color: 'var(--text-muted)' }}>BugLens Backend API URL</label>
-            <input
-              type="text"
-              value={customApiUrl}
-              onChange={(e) => setCustomApiUrl(e.target.value)}
-              placeholder="e.g. http://localhost:8080 or https://api.render.com"
-              style={{
-                width: '100%',
-                background: 'var(--bg-secondary)',
-                border: '1px solid var(--border)',
-                borderRadius: '6px',
-                padding: '6px 10px',
-                color: 'var(--text-primary)',
-                fontFamily: 'monospace',
-                fontSize: '11px',
-                outline: 'none'
-              }}
-            />
+          
+          <div style={{ paddingTop: '4px' }}>
+            <span style={{ fontSize: '10px', fontWeight: 700, color: '#818cf8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>🤖 AI Providers (BYOK)</span>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+            <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label className="field-label" style={{ fontSize: '10px', color: 'var(--text-muted)' }}>OpenAI API Key</label>
+              <input
+                type="password"
+                value={userOpenAiKey}
+                onChange={(e) => setUserOpenAiKey(e.target.value)}
+                placeholder="sk-..."
+                style={{
+                  width: '100%',
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  padding: '6px 10px',
+                  color: 'var(--text-primary)',
+                  fontFamily: 'monospace',
+                  fontSize: '11px',
+                  outline: 'none'
+                }}
+              />
+            </div>
+            <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label className="field-label" style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Claude API Key</label>
+              <input
+                type="password"
+                value={userClaudeKey}
+                onChange={(e) => setUserClaudeKey(e.target.value)}
+                placeholder="sk-ant-..."
+                style={{
+                  width: '100%',
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  padding: '6px 10px',
+                  color: 'var(--text-primary)',
+                  fontFamily: 'monospace',
+                  fontSize: '11px',
+                  outline: 'none'
+                }}
+              />
+            </div>
           </div>
 
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: '8px', marginTop: '2px' }}>
-            <span style={{ fontSize: '10px', fontWeight: 700, color: '#818cf8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>🔑 Bring Your Own Keys (BYOK)</span>
-          </div>
-
-          <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <label className="field-label" style={{ fontSize: '10px', color: 'var(--text-muted)' }}>OpenAI API Key (Personal)</label>
-            <input
-              type="password"
-              value={userOpenAiKey}
-              onChange={(e) => setUserOpenAiKey(e.target.value)}
-              placeholder="sk-..."
-              style={{
-                width: '100%',
-                background: 'var(--bg-secondary)',
-                border: '1px solid var(--border)',
-                borderRadius: '6px',
-                padding: '6px 10px',
-                color: 'var(--text-primary)',
-                fontFamily: 'monospace',
-                fontSize: '11px',
-                outline: 'none'
-              }}
-            />
+            <span style={{ fontSize: '10px', fontWeight: 700, color: '#818cf8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>🎟 Jira Integration</span>
           </div>
 
           <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -331,7 +359,7 @@ function App() {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
             <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <label className="field-label" style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Jira Account Email</label>
+              <label className="field-label" style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Jira Email</label>
               <input
                 type="email"
                 value={userJiraEmail}
@@ -379,6 +407,118 @@ function App() {
               value={userJiraToken}
               onChange={(e) => setUserJiraToken(e.target.value)}
               placeholder="ATATT3xFfGF0..."
+              style={{
+                width: '100%',
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border)',
+                borderRadius: '6px',
+                padding: '6px 10px',
+                color: 'var(--text-primary)',
+                fontFamily: 'monospace',
+                fontSize: '11px',
+                outline: 'none'
+              }}
+            />
+          </div>
+
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '8px', marginTop: '2px' }}>
+            <span style={{ fontSize: '10px', fontWeight: 700, color: '#818cf8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>💬 Slack Integration</span>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '8px' }}>
+            <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label className="field-label" style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Slack Webhook URL</label>
+              <input
+                type="password"
+                value={userSlackWebhook}
+                onChange={(e) => setUserSlackWebhook(e.target.value)}
+                placeholder="https://hooks.slack.com/services/..."
+                style={{
+                  width: '100%',
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  padding: '6px 10px',
+                  color: 'var(--text-primary)',
+                  fontFamily: 'monospace',
+                  fontSize: '11px',
+                  outline: 'none'
+                }}
+              />
+            </div>
+            <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label className="field-label" style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Channel</label>
+              <input
+                type="text"
+                value={userSlackChannel}
+                onChange={(e) => setUserSlackChannel(e.target.value)}
+                placeholder="#bugs"
+                style={{
+                  width: '100%',
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  padding: '6px 10px',
+                  color: 'var(--text-primary)',
+                  fontSize: '11px',
+                  outline: 'none'
+                }}
+              />
+            </div>
+          </div>
+
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '8px', marginTop: '2px' }}>
+            <span style={{ fontSize: '10px', fontWeight: 700, color: '#818cf8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>🔷 Azure DevOps Integration</span>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+            <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label className="field-label" style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Org Name</label>
+              <input
+                type="text"
+                value={userAzureOrg}
+                onChange={(e) => setUserAzureOrg(e.target.value)}
+                placeholder="my-org"
+                style={{
+                  width: '100%',
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  padding: '6px 10px',
+                  color: 'var(--text-primary)',
+                  fontSize: '11px',
+                  outline: 'none'
+                }}
+              />
+            </div>
+            <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label className="field-label" style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Project Name</label>
+              <input
+                type="text"
+                value={userAzureProject}
+                onChange={(e) => setUserAzureProject(e.target.value)}
+                placeholder="my-project"
+                style={{
+                  width: '100%',
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  padding: '6px 10px',
+                  color: 'var(--text-primary)',
+                  fontSize: '11px',
+                  outline: 'none'
+                }}
+              />
+            </div>
+          </div>
+
+          <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <label className="field-label" style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Azure Personal Access Token (PAT)</label>
+            <input
+              type="password"
+              value={userAzurePat}
+              onChange={(e) => setUserAzurePat(e.target.value)}
+              placeholder="PAT Token..."
               style={{
                 width: '100%',
                 background: 'var(--bg-secondary)',

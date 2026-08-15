@@ -79,7 +79,7 @@ export async function buildApp() {
       return userId ?? request.ip;
     },
     errorResponseBuilder: (_request, context) => ({
-      type: 'https://bugbuddy.app/errors/rate-limit-exceeded',
+      type: 'https://buglens.app/errors/rate-limit-exceeded',
       title: 'Too Many Requests',
       status: 429,
       detail: `Rate limit exceeded. Try again in ${Math.ceil(context.ttl / 1000)} seconds.`,
@@ -104,7 +104,7 @@ export async function buildApp() {
 
     const isClientError = statusCode >= 400 && statusCode < 500;
     reply.status(statusCode).send({
-      type: `https://bugbuddy.app/errors/${error.code ?? 'internal-error'}`,
+      type: `https://buglens.app/errors/${error.code ?? 'internal-error'}`,
       title: isClientError ? error.message : 'An unexpected error occurred',
       status: statusCode,
       ...(isClientError && error.validation ? { errors: error.validation } : {}),
@@ -114,7 +114,7 @@ export async function buildApp() {
   // ─── 404 handler ─────────────────────────────────────────────────────────
   app.setNotFoundHandler((request, reply) => {
     reply.status(404).send({
-      type: 'https://bugbuddy.app/errors/not-found',
+      type: 'https://buglens.app/errors/not-found',
       title: 'Not Found',
       status: 404,
       detail: `Route ${request.method} ${request.url} not found`,

@@ -61,3 +61,7 @@ packages/backend/keys/
 
 # MinIO data (local dev only)
 .minio-data/
+
+# Distribution
+*.zip
+*.crx

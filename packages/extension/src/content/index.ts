@@ -1,5 +1,5 @@
 /**
- * BugBuddy — Content Script: Event Recorder
+ * BugLens — Content Script: Event Recorder
  *
  * Captures user interactions and sends them to the service worker.
  * All PII is masked BEFORE leaving this script.
@@ -279,7 +279,7 @@ function flushEvents() {
   if (eventBuffer.length === 0) return;
   const batch = eventBuffer.splice(0, eventBuffer.length);
   chrome.runtime.sendMessage({ type: 'EVENTS_BATCH', payload: batch }).catch((err) => {
-    console.error('[BugBuddy] Failed to flush events:', err);
+    console.error('[BugLens] Failed to flush events:', err);
     eventBuffer.unshift(...batch);
   });
 }
@@ -494,7 +494,7 @@ function showPauseBanner() {
     padding: 6px 12px; font-family: sans-serif; font-size: 13px; font-weight: 600;
     pointer-events: none;
   `;
-  pauseBanner.textContent = '⏸ BugBuddy recording paused — Press Ctrl+Shift+P to resume';
+  pauseBanner.textContent = '⏸ BugLens recording paused — Press Ctrl+Shift+P to resume';
   document.body.appendChild(pauseBanner);
 }
 
@@ -533,7 +533,7 @@ function showRecordingBanner() {
   document.head.appendChild(style);
 
   recordingBanner.appendChild(dot);
-  recordingBanner.appendChild(document.createTextNode('BugBuddy Recording · Ctrl+I to capture'));
+  recordingBanner.appendChild(document.createTextNode('BugLens Recording · Ctrl+I to capture'));
   document.body.appendChild(recordingBanner);
 }
 

@@ -67,7 +67,7 @@ export async function uploadRoutes(app: FastifyInstance) {
       for (const row of recent.rows) {
         if (row.phash && isDuplicate(phash, row.phash)) {
           return reply.status(409).send({
-            type: 'https://bugbuddy.app/errors/duplicate-screenshot',
+            type: 'https://buglens.app/errors/duplicate-screenshot',
             title: 'Duplicate screenshot detected',
             status: 409,
             detail: 'This screenshot is too similar to a recent capture and was skipped.',

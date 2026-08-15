@@ -336,7 +336,7 @@ export async function integrationRoutes(app: FastifyInstance) {
         }] : []),
         {
           type: 'context',
-          elements: [{ type: 'mrkdwn', text: `Reported via *BugBuddy* · ${new Date().toUTCString()}` }],
+          elements: [{ type: 'mrkdwn', text: `Reported via *BugLens* · ${new Date().toUTCString()}` }],
         },
       ],
     };
@@ -459,14 +459,14 @@ export async function integrationRoutes(app: FastifyInstance) {
         try {
           let imageBuffer: Buffer | null = null;
           let mimeType = 'image/png';
-          let fileName = 'bugbuddy-screenshot.png';
+          let fileName = 'buglens-screenshot.png';
 
           if (screenshot.startsWith('data:image/')) {
             const match = screenshot.match(/^data:(image\/\w+);base64,(.+)$/);
             if (match && match[1] && match[2]) {
               mimeType = match[1];
               const ext = mimeType.split('/')[1] || 'png';
-              fileName = `bugbuddy-screenshot.${ext}`;
+              fileName = `buglens-screenshot.${ext}`;
               imageBuffer = Buffer.from(match[2], 'base64');
             }
           } else if (screenshot.startsWith('http://') || screenshot.startsWith('https://')) {
@@ -551,7 +551,7 @@ export async function integrationRoutes(app: FastifyInstance) {
       { op: 'add', path: '/fields/System.Title', value: title },
       { op: 'add', path: '/fields/System.Description', value: description ?? title },
       { op: 'add', path: '/fields/Microsoft.VSTS.Common.Priority', value: effectivePriority },
-      { op: 'add', path: '/fields/System.Tags', value: `BugBuddy; ${severity ?? 'P2'}` },
+      { op: 'add', path: '/fields/System.Tags', value: `BugLens; ${severity ?? 'P2'}` },
     ];
 
     if (assignee) {

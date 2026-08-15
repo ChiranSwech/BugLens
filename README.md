@@ -31,8 +31,8 @@ The repository is structured as a `pnpm` workspace monorepo managed by **Turbo R
 
 ```
 BugLens/
-├── bugbuddy-extension.crx     # Official Chrome extension binary file
-├── bugbuddy-extension-v0.1.0.zip # Shareable team distribution archive
+├── buglens-extension.crx     # Official Chrome extension binary file
+├── buglens-extension-v0.2.0.zip # Shareable team distribution archive
 ├── packages/
 │   ├── shared/       # Shared TypeScript schemas (Zod), DTO types, & enums
 │   ├── backend/      # Fastify API server, Auth, AI routes, PostgreSQL pool, & BullMQ workers
@@ -128,7 +128,7 @@ Packages an official signed Chrome Extension binary file for drag-and-drop insta
 ```bash
 pnpm run pack:crx
 ```
-*Output file*: `bugbuddy-extension.crx` (in root directory)
+*Output file*: `buglens-extension.crx` (in root directory)
 
 ### 3. Generate Shareable Team `.zip` Bundle
 Creates a compressed ZIP archive suitable for unzipping and sharing across team members:
@@ -136,13 +136,13 @@ Creates a compressed ZIP archive suitable for unzipping and sharing across team 
 ```bash
 pnpm run pack:extension
 ```
-*Output file*: `bugbuddy-extension-v0.1.0.zip` (in root directory)
+*Output file*: `buglens-extension-v0.2.0.zip` (in root directory)
 
 ### 4. Extension Watch Mode (Live Rebuild during development)
 Automatically rebuilds extension files whenever you edit source code:
 
 ```bash
-pnpm --filter @bugbuddy/extension dev
+pnpm --filter @buglens/extension dev
 ```
 
 ---
@@ -152,11 +152,11 @@ pnpm --filter @bugbuddy/extension dev
 ### Option A: Install via Official `.crx` File
 1. Open Google Chrome and navigate to `chrome://extensions`.
 2. Enable **Developer mode** using the toggle switch in the top-right corner.
-3. Drag and drop **`bugbuddy-extension.crx`** directly onto the `chrome://extensions` browser window.
+3. Drag and drop **`buglens-extension.crx`** directly onto the `chrome://extensions` browser window.
 4. Click **Add Extension** on the Chrome confirmation prompt.
 
 ### Option B: Install via Unpacked Directory / ZIP
-1. Extract `bugbuddy-extension-v0.1.0.zip` into a folder on your computer (or build `packages/extension/dist`).
+1. Extract `buglens-extension-v0.2.0.zip` into a folder on your computer (or build `packages/extension/dist`).
 2. Open Google Chrome and navigate to `chrome://extensions`.
 3. Enable **Developer mode** in the top-right corner.
 4. Click **Load unpacked** in the top-left corner.

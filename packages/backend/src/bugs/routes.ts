@@ -37,7 +37,7 @@ export async function bugRoutes(app: FastifyInstance) {
     if (!body.success) {
       request.log.error({ validationErrors: body.error.errors }, 'Bug submission validation failed');
       return reply.status(400).send({
-        type: 'https://bugbuddy.app/errors/validation-error',
+        type: 'https://buglens.app/errors/validation-error',
         title: 'Validation Error',
         status: 400,
         errors: body.error.errors,
@@ -71,7 +71,7 @@ export async function bugRoutes(app: FastifyInstance) {
     );
     if (!sessionCheck.rowCount) {
       return reply.status(403).send({
-        type: 'https://bugbuddy.app/errors/forbidden',
+        type: 'https://buglens.app/errors/forbidden',
         title: 'Session not found or does not belong to you',
         status: 403,
       });

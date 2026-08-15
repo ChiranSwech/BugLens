@@ -92,7 +92,7 @@ export default function PrivacyPolicyPage() {
           <div>
             <h2 className="text-lg font-bold text-white mb-2">7. Contact Us</h2>
             <p>
-              If you have any questions regarding this Privacy Policy or data privacy practices, please contact our support team at <a href="mailto:support@bugbuddy.app" className="text-[#818cf8] underline">support@bugbuddy.app</a>.
+              If you have any questions regarding this Privacy Policy or data privacy practices, please contact our support team at <a href="mailto:support@buglens.app" className="text-[#818cf8] underline">support@buglens.app</a>.
             </p>
           </div>
 

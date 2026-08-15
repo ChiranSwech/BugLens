@@ -153,7 +153,7 @@ type RawStepInput = { actionType?: string | undefined; elementLabel?: string | u
 
 function summarizeStepsHeuristically(steps: RawStepInput[]): { title: string; description: string; suggestedSeverity: string; stepsSummary: string } {
   if (steps.length === 0) {
-    return { title: 'User Bug Report', description: 'Bug report recorded via BugBuddy.', suggestedSeverity: 'P2', stepsSummary: '1. Navigate to target URL.' };
+    return { title: 'User Bug Report', description: 'Bug report recorded via BugLens.', suggestedSeverity: 'P2', stepsSummary: '1. Navigate to target URL.' };
   }
 
   const consolidated: string[] = [];

@@ -25,7 +25,7 @@ const ConfigSchema = z.object({
     .default('false'),
   MINIO_ACCESS_KEY: z.string().min(3),
   MINIO_SECRET_KEY: z.string().min(8),
-  MINIO_BUCKET: z.string().default('bugbuddy-attachments'),
+  MINIO_BUCKET: z.string().default('buglens-attachments'),
 
   // Google OAuth 2.0
   GOOGLE_CLIENT_ID: z.string().min(10),

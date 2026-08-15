@@ -3,7 +3,7 @@ import { redis } from '../db/redis.js';
 import { processPiiRedaction } from './pii-redaction.js';
 import { processIntegrationDispatch } from './integration-dispatch.js';
 
-console.info('[WORKER] BugBuddy worker starting...');
+console.info('[WORKER] BugLens worker starting...');
 
 // ─── PII Redaction Worker ─────────────────────────────────────────────────────
 const piiWorker = new Worker('pii-redaction', processPiiRedaction, {

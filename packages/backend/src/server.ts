@@ -37,7 +37,7 @@ process.on('uncaughtException', (error) => {
 // ─── Start ────────────────────────────────────────────────────────────────────
 try {
   await app.listen({ port: config.PORT, host: '0.0.0.0' });
-  app.log.info(`[SERVER] BugBuddy API running on port ${config.PORT}`);
+  app.log.info(`[SERVER] BugLens API running on port ${config.PORT}`);
 } catch (err) {
   app.log.error(err, '[SERVER] Failed to start');
   process.exit(1);
