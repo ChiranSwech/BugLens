@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
+import { BugLensLogo } from '../components/BugLensLogo';
 import './popup.css';
 
 type RecordingState = 'idle' | 'recording' | 'paused';
@@ -427,21 +428,9 @@ function App() {
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
           </svg>
         </button>
-        <div className="logo">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: '42px', height: '42px', color: '#818cf8', filter: 'drop-shadow(0 0 15px rgba(99, 102, 241, 0.6))', margin: '0 auto 8px auto', display: 'block' }}>
-            <rect x="6" y="8" width="12" height="11" rx="4" />
-            <path d="M12 8V4" />
-            <path d="M9 12h6" />
-            <path d="M9 4.5a3 3 0 0 1 6 0" />
-            <path d="M4 10h2" />
-            <path d="M18 10h2" />
-            <path d="M3 14h3" />
-            <path d="M18 14h3" />
-            <path d="M4 18h2" />
-            <path d="M18 18h2" />
-          </svg>
-          <h1>BugLens</h1>
-          <p>Enterprise Bug Capture</p>
+        <div className="logo" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', margin: '0 auto 12px auto' }}>
+          <BugLensLogo size={52} showText={true} showSubtitle={true} />
+          <p style={{ marginTop: '6px' }}>Enterprise Bug Capture</p>
         </div>
         <button className="btn btn-primary btn-google" onClick={handleLogin} id="login-btn">
           <svg className="google-icon" viewBox="0 0 24 24" width="18" height="18">
@@ -460,21 +449,7 @@ function App() {
     <div className="popup-container">
       {/* Header */}
       <header className="popup-header">
-        <div className="logo-small" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: '16px', height: '16px', color: '#818cf8', flexShrink: 0 }}>
-            <rect x="6" y="8" width="12" height="11" rx="4" />
-            <path d="M12 8V4" />
-            <path d="M9 12h6" />
-            <path d="M9 4.5a3 3 0 0 1 6 0" />
-            <path d="M4 10h2" />
-            <path d="M18 10h2" />
-            <path d="M3 14h3" />
-            <path d="M18 14h3" />
-            <path d="M4 18h2" />
-            <path d="M18 18h2" />
-          </svg>
-          <span>BugLens</span>
-        </div>
+        <BugLensLogo size={22} showText={true} />
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {isOffline && <span className="offline-badge" title="Offline — events queued">⚡ Offline</span>}
           <button

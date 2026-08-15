@@ -2,6 +2,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { BugLensLogo } from '@/components/BugLensLogo';
 import {
   Bug,
   Activity,
@@ -209,10 +210,7 @@ export default function Home() {
 
         <header className="flex justify-between items-end border-b border-[#2e2e3a] pb-6">
           <div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-[#818cf8] to-[#c084fc] bg-clip-text text-transparent inline-flex items-center gap-3">
-              <Bug className="w-8 h-8 text-[#818cf8]" />
-              BugLens
-            </h1>
+            <BugLensLogo size={42} showText={true} showSubtitle={true} monoColorClass="text-slate-900 dark:text-white" />
             <p className="text-[#a09dc0] mt-2">Enterprise QA Dashboard</p>
           </div>
 
@@ -330,10 +328,7 @@ export default function Home() {
             <div className="p-6 border-b border-[#2e2e3a] flex justify-between items-start shrink-0 bg-[#0b0f19]">
               <div>
                 <div className="flex items-center gap-3 mb-2 flex-wrap">
-                  <div className="flex items-center gap-1.5 text-[#818cf8]">
-                    <Bug className="w-4 h-4 shrink-0" />
-                    <span className="text-xs font-bold tracking-wider uppercase bg-gradient-to-r from-[#818cf8] to-[#c084fc] bg-clip-text text-transparent">BugLens</span>
-                  </div>
+                  <BugLensLogo size={20} showText={true} monoColorClass="text-slate-900 dark:text-white" />
                   <span className="text-[#2e2e3a] hidden sm:inline">|</span>
                   <span className={`px-2.5 py-1 rounded text-xs font-bold ${
                     selectedBug.severity === 'P0' ? 'bg-red-500/20 text-red-500 border border-red-500/30' :

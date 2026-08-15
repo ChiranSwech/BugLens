@@ -25,17 +25,19 @@
     "type": "module"
   },
   "icons": {
-    "16": "icon16.png",
-    "48": "icon48.png",
-    "128": "icon128.png"
+    "16": "BugLens16.png",
+    "32": "BugLens32.png",
+    "48": "BugLens48.png",
+    "128": "BugLens128.png"
   },
   "action": {
     "default_popup": "src/popup/index.html",
     "default_title": "BugLens",
     "default_icon": {
-      "16": "icon16.png",
-      "48": "icon48.png",
-      "128": "icon128.png"
+      "16": "BugLens16.png",
+      "32": "BugLens32.png",
+      "48": "BugLens48.png",
+      "128": "BugLens128.png"
     }
   },
   "side_panel": {

@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { BugLensLogo } from '../components/BugLensLogo';
 import './sidepanel.css';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -1642,7 +1643,7 @@ export const SidePanel: React.FC = () => {
           <path d="M4 18h2" />
           <path d="M18 18h2" />
         </svg>
-        <span class="brand-text">BugBuddy Report</span>
+        <span class="brand-text">BugLens Report</span>
       </div>
 
       <div class="header-info">
@@ -2001,21 +2002,7 @@ export const SidePanel: React.FC = () => {
       {/* Header */}
       <div className="panel-header">
         <div className="header-top">
-          <div className="brand" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: '18px', height: '18px', color: '#818cf8', flexShrink: 0 }}>
-              <rect x="6" y="8" width="12" height="11" rx="4" />
-              <path d="M12 8V4" />
-              <path d="M9 12h6" />
-              <path d="M9 4.5a3 3 0 0 1 6 0" />
-              <path d="M4 10h2" />
-              <path d="M18 10h2" />
-              <path d="M3 14h3" />
-              <path d="M18 14h3" />
-              <path d="M4 18h2" />
-              <path d="M18 18h2" />
-            </svg>
-            <span className="brand-name">BugLens</span>
-          </div>
+          <BugLensLogo size={22} showText={true} />
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             {sessionId && <div className="session-chip">#{sessionId.slice(-6).toUpperCase()}</div>}
             <button
