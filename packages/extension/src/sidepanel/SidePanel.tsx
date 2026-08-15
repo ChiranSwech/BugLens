@@ -2014,7 +2014,7 @@ export const SidePanel: React.FC = () => {
               <path d="M4 18h2" />
               <path d="M18 18h2" />
             </svg>
-            <span className="brand-name">BugBuddy</span>
+            <span className="brand-name">BugLens</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             {sessionId && <div className="session-chip">#{sessionId.slice(-6).toUpperCase()}</div>}
@@ -2062,7 +2062,7 @@ export const SidePanel: React.FC = () => {
             </button>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 500 }}>BugBuddy API Server URL</label>
+            <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 500 }}>BugLens API Server URL</label>
             <div style={{ display: 'flex', gap: '8px' }}>
               <input
                 type="text"

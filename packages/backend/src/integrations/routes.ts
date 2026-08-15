@@ -271,7 +271,7 @@ function buildJiraADFDoc(data: {
 
   content.push({
     type: 'paragraph',
-    content: [{ type: 'text', text: `\nReported via BugBuddy | Severity: ${data.severity ?? 'P2'}` }],
+    content: [{ type: 'text', text: `\nReported via BugLens | Severity: ${data.severity ?? 'P2'}` }],
   });
 
   return {
@@ -401,7 +401,7 @@ export async function integrationRoutes(app: FastifyInstance) {
     }
 
     const effectivePriority = priority ?? severityToJiraPriority(severity);
-    const jiraLabels = ['bugbuddy', ...(severity ? [severity.toLowerCase()] : []), ...(labels ?? [])];
+    const jiraLabels = ['buglens', ...(severity ? [severity.toLowerCase()] : []), ...(labels ?? [])];
 
     const adfDoc = buildJiraADFDoc({
       description,

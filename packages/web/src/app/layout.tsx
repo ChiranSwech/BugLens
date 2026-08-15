@@ -5,7 +5,7 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "BugBuddy QA Dashboard",
+  title: "BugLens QA Dashboard",
   description: "Enterprise bug tracking and session replay dashboard",
 };
 

@@ -1,6 +1,6 @@
-# 🐛 BugBuddy — Enterprise Bug Capture, Session Replay & AI Triage Platform
+# 🐛 BugLens — Enterprise Bug Capture, Session Replay & AI Triage Platform
 
-BugBuddy is a modern, enterprise-grade bug recording, session replay, and automated AI triage platform. It combines a Chrome Extension (Manifest V3) event recorder, a high-performance Fastify backend, interactive session replay, server-side LLM root cause analysis, and integration export capabilities.
+BugLens is a modern, enterprise-grade bug recording, session replay, and automated AI triage platform. It combines a Chrome Extension (Manifest V3) event recorder, a high-performance Fastify backend, interactive session replay, server-side LLM root cause analysis, and integration export capabilities.
 
 ---
 
@@ -30,7 +30,7 @@ BugBuddy is a modern, enterprise-grade bug recording, session replay, and automa
 The repository is structured as a `pnpm` workspace monorepo managed by **Turbo Repo**:
 
 ```
-BugBuddy/
+BugLens/
 ├── bugbuddy-extension.crx     # Official Chrome extension binary file
 ├── bugbuddy-extension-v0.1.0.zip # Shareable team distribution archive
 ├── packages/
@@ -62,8 +62,8 @@ Ensure your development environment meets the following requirements:
 
 ```bash
 # Clone the repository
-git clone https://github.com/ChiranSwech/BugBuddy.git
-cd BugBuddy
+git clone https://github.com/ChiranSwech/BugLens.git
+cd BugLens
 
 # Install monorepo dependencies
 pnpm install
@@ -112,7 +112,7 @@ JIRA_PROJECT_KEY=BUG
 
 ## 📦 Building & Packaging Chrome Extension Bundles
 
-BugBuddy includes automated CLI commands for building local dist folders, official `.crx` extension binary files, and shareable `.zip` distribution archives for team distribution.
+BugLens includes automated CLI commands for building local dist folders, official `.crx` extension binary files, and shareable `.zip` distribution archives for team distribution.
 
 ### 1. Generate Local Chrome Extension Directory
 Builds the compiled Chrome Extension dist bundle:
@@ -167,14 +167,14 @@ pnpm --filter @bugbuddy/extension dev
 ## 📖 Usage Steps
 
 ### 1. Log In via Extension
-- Click the **BugBuddy** extension icon to open the popup interface.
+- Click the **BugLens** extension icon to open the popup interface.
 - Click **Continue with Google**.
 - Complete Google OAuth login. Credentials remain persistent across browser restarts.
 
 ### 2. Configure Personal Integration Keys (BYOK - Optional)
 - Click the **Settings (gear icon ⚙️)** in the extension popup.
 - Enter your personal **OpenAI API Key**, **Jira Base URL**, **Jira Email**, **Jira API Token**, and **Jira Project Key**.
-- Click **Save Configuration**. BugBuddy will use your personal keys for AI generation and Jira dispatching.
+- Click **Save Configuration**. BugLens will use your personal keys for AI generation and Jira dispatching.
 
 ### 3. Record a Test Session
 - Navigate to any web application you want to test.
@@ -205,7 +205,7 @@ pnpm --filter @bugbuddy/extension dev
 - Select Bug Severity (`P0` - `P4`).
 - Click **Dispatch to Jira**, **Azure DevOps**, or **Slack**.
 - Click **📄 Export HTML** or **📕 Export PDF** for standalone local downloads.
-- Click **🐛 Submit Bug Report** to send the report to the BugBuddy backend platform.
+- Click **🐛 Submit Bug Report** to send the report to the BugLens backend platform.
 
 ---
 

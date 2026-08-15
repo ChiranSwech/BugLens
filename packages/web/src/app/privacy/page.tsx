@@ -2,8 +2,8 @@ import { Bug, ShieldCheck, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 
 export const metadata = {
-  title: 'Privacy Policy — BugBuddy',
-  description: 'Privacy Policy for BugBuddy Chrome Extension and Platform',
+  title: 'Privacy Policy — BugLens',
+  description: 'Privacy Policy for BugLens Chrome Extension and Platform',
 };
 
 export default function PrivacyPolicyPage() {
@@ -15,7 +15,7 @@ export default function PrivacyPolicyPage() {
           <div className="flex items-center gap-3">
             <Bug className="w-8 h-8 text-[#818cf8]" />
             <h1 className="text-2xl font-bold bg-gradient-to-r from-[#818cf8] to-[#c084fc] bg-clip-text text-transparent">
-              BugBuddy Privacy Policy
+              BugLens Privacy Policy
             </h1>
           </div>
           <Link
@@ -34,7 +34,7 @@ export default function PrivacyPolicyPage() {
           <div>
             <h2 className="text-lg font-bold text-white mb-2">1. Overview</h2>
             <p>
-              BugBuddy (&quot;we,&quot; &quot;our,&quot; or &quot;us&quot;) is committed to protecting your privacy. This Privacy Policy explains how our Chrome Extension and Web Dashboard collect, use, and process data when software testers, developers, and QA engineers record bug sessions and generate AI triage reports.
+              BugLens (&quot;we,&quot; &quot;our,&quot; or &quot;us&quot;) is committed to protecting your privacy. This Privacy Policy explains how our Chrome Extension and Web Dashboard collect, use, and process data when software testers, developers, and QA engineers record bug sessions and generate AI triage reports.
             </p>
           </div>
 
@@ -52,7 +52,7 @@ export default function PrivacyPolicyPage() {
           <div>
             <h2 className="text-lg font-bold text-white mb-2">3. Source PII Redaction &amp; Privacy Protections</h2>
             <p>
-              BugBuddy automatically masks sensitive user data before events leave the browser:
+              BugLens automatically masks sensitive user data before events leave the browser:
             </p>
             <ul className="list-disc pl-5 space-y-1 mt-2 text-[#f1f0ff]">
               <li>Password fields, credit card numbers, and email inputs are automatically obfuscated.</li>

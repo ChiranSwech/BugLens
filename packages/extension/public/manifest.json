@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "BugBuddy",
+  "name": "BugLens",
   "version": "0.2.0",
   "description": "Enterprise bug capture and reporting — record, annotate, and submit bugs in seconds.",
   "permissions": [
@@ -24,9 +24,19 @@
     "service_worker": "background.js",
     "type": "module"
   },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
   "action": {
     "default_popup": "src/popup/index.html",
-    "default_title": "BugBuddy"
+    "default_title": "BugLens",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
   },
   "side_panel": {
     "default_path": "src/sidepanel/index.html"

@@ -262,7 +262,7 @@ function App() {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '4px 0' }}>
           <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <label className="field-label" style={{ fontSize: '10px', color: 'var(--text-muted)' }}>BugBuddy Backend API URL</label>
+            <label className="field-label" style={{ fontSize: '10px', color: 'var(--text-muted)' }}>BugLens Backend API URL</label>
             <input
               type="text"
               value={customApiUrl}
@@ -440,7 +440,7 @@ function App() {
             <path d="M4 18h2" />
             <path d="M18 18h2" />
           </svg>
-          <h1>BugBuddy</h1>
+          <h1>BugLens</h1>
           <p>Enterprise Bug Capture</p>
         </div>
         <button className="btn btn-primary btn-google" onClick={handleLogin} id="login-btn">
@@ -473,7 +473,7 @@ function App() {
             <path d="M4 18h2" />
             <path d="M18 18h2" />
           </svg>
-          <span>BugBuddy</span>
+          <span>BugLens</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {isOffline && <span className="offline-badge" title="Offline — events queued">⚡ Offline</span>}

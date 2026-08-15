@@ -211,7 +211,7 @@ export default function Home() {
           <div>
             <h1 className="text-3xl font-bold bg-gradient-to-r from-[#818cf8] to-[#c084fc] bg-clip-text text-transparent inline-flex items-center gap-3">
               <Bug className="w-8 h-8 text-[#818cf8]" />
-              BugBuddy
+              BugLens
             </h1>
             <p className="text-[#a09dc0] mt-2">Enterprise QA Dashboard</p>
           </div>
@@ -313,7 +313,7 @@ export default function Home() {
               </table>
             ) : (
               <div className="p-12 text-center text-[#5f5c7a]">
-                <p>No bugs reported yet. Use the BugBuddy extension to start capturing.</p>
+                <p>No bugs reported yet. Use the BugLens extension to start capturing.</p>
               </div>
             )}
           </div>
@@ -332,7 +332,7 @@ export default function Home() {
                 <div className="flex items-center gap-3 mb-2 flex-wrap">
                   <div className="flex items-center gap-1.5 text-[#818cf8]">
                     <Bug className="w-4 h-4 shrink-0" />
-                    <span className="text-xs font-bold tracking-wider uppercase bg-gradient-to-r from-[#818cf8] to-[#c084fc] bg-clip-text text-transparent">BugBuddy</span>
+                    <span className="text-xs font-bold tracking-wider uppercase bg-gradient-to-r from-[#818cf8] to-[#c084fc] bg-clip-text text-transparent">BugLens</span>
                   </div>
                   <span className="text-[#2e2e3a] hidden sm:inline">|</span>
                   <span className={`px-2.5 py-1 rounded text-xs font-bold ${
