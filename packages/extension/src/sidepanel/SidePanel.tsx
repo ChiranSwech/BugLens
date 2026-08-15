@@ -681,12 +681,39 @@ export const SidePanel: React.FC = () => {
 
       // ── Dispatch integrations ────────────────────────────────────────────
       const integrationMessages: string[] = [];
-      const integrationBase = { title, description, severity, stepCount: events.length };
+      const selectedScreenshot = mainImageIndex !== null && screenshots[mainImageIndex]
+        ? screenshots[mainImageIndex]
+        : (Object.values(screenshots)[0] || null);
+
+      const deviceFingerprint = {
+        os: navigator.platform || 'Unknown OS',
+        browser: 'Chrome Extension',
+        resolution: `${window.screen.width}x${window.screen.height}`,
+        userAgent: navigator.userAgent,
+      };
+
+      const integrationPayload = {
+        title,
+        description,
+        severity,
+        stepCount: events.length,
+        url: bugUrl,
+        expectedResult,
+        actualResult,
+        testSummary,
+        steps: events,
+        networkLogs: attachNetwork ? networkLogs.filter(l => l.failed) : [],
+        consoleLogs,
+        storageSnapshot,
+        deviceFingerprint,
+        screenshot: selectedScreenshot,
+        triageResult,
+      };
 
       if (jiraChecked) {
         const jiraRes = await chrome.runtime.sendMessage({
           type: 'CREATE_JIRA_ISSUE',
-          payload: { ...integrationBase, issueType: jiraIssueType, priority: undefined },
+          payload: { ...integrationPayload, issueType: jiraIssueType },
         });
         if (jiraRes?.issueKey) {
           integrationMessages.push(`✅ Jira: ${jiraRes.issueKey}`);
@@ -698,7 +725,7 @@ export const SidePanel: React.FC = () => {
       if (slackChecked) {
         const slackRes = await chrome.runtime.sendMessage({
           type: 'SEND_SLACK_NOTIFICATION',
-          payload: { ...integrationBase, channel: slackChannel },
+          payload: { ...integrationPayload, channel: slackChannel },
         });
         if (slackRes?.success) {
           integrationMessages.push(`✅ Slack: Notification sent to ${slackChannel}`);
@@ -710,7 +737,7 @@ export const SidePanel: React.FC = () => {
       if (azureChecked) {
         const azureRes = await chrome.runtime.sendMessage({
           type: 'CREATE_AZURE_WORK_ITEM',
-          payload: { ...integrationBase, workItemType: azureWorkItemType },
+          payload: { ...integrationPayload, workItemType: azureWorkItemType },
         });
         if (azureRes?.workItemId) {
           integrationMessages.push(`✅ Azure DevOps: #${azureRes.workItemId}`);
@@ -760,11 +787,38 @@ export const SidePanel: React.FC = () => {
     setJiraSubmitting(true);
     setJiraResult(null);
     try {
-      const fullDesc = buildFullDescription(31950);
-      const integrationBase = { title, description: fullDesc, severity, stepCount: events.length };
+      const selectedScreenshot = mainImageIndex !== null && screenshots[mainImageIndex]
+        ? screenshots[mainImageIndex]
+        : (Object.values(screenshots)[0] || null);
+
+      const deviceFingerprint = {
+        os: navigator.platform || 'Unknown OS',
+        browser: 'Chrome Extension',
+        resolution: `${window.screen.width}x${window.screen.height}`,
+        userAgent: navigator.userAgent,
+      };
+
+      const jiraPayload = {
+        title,
+        description,
+        severity,
+        issueType: jiraIssueType,
+        url: bugUrl,
+        expectedResult,
+        actualResult,
+        testSummary,
+        steps: events,
+        networkLogs: attachNetwork ? networkLogs.filter(l => l.failed) : [],
+        consoleLogs,
+        storageSnapshot,
+        deviceFingerprint,
+        screenshot: selectedScreenshot,
+        triageResult,
+      };
+
       const res = await chrome.runtime.sendMessage({
         type: 'CREATE_JIRA_ISSUE',
-        payload: { ...integrationBase, issueType: jiraIssueType, priority: undefined },
+        payload: jiraPayload,
       });
       if (res?.issueKey) {
         setJiraResult({ type: 'success', message: `Successfully created issue: ${res.issueKey}` });

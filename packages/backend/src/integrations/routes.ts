@@ -23,6 +23,17 @@ const JiraSchema = z.object({
   priority: z.enum(['Highest', 'High', 'Medium', 'Low', 'Lowest']).default('Medium'),
   labels: z.array(z.string()).max(10).optional(),
   assignee: z.string().optional(),
+  url: z.string().optional(),
+  expectedResult: z.string().optional(),
+  actualResult: z.string().optional(),
+  testSummary: z.string().optional(),
+  steps: z.array(z.any()).optional(),
+  networkLogs: z.array(z.any()).optional(),
+  consoleLogs: z.array(z.any()).optional(),
+  storageSnapshot: z.any().optional(),
+  deviceFingerprint: z.any().optional(),
+  screenshot: z.string().optional(),
+  triageResult: z.any().optional(),
   userJiraUrl: z.string().optional(),
   userJiraEmail: z.string().optional(),
   userJiraToken: z.string().optional(),
@@ -62,6 +73,212 @@ function severityEmoji(sev?: string): string {
     P0: '🔴', P1: '🟠', P2: '🟡', P3: '🔵', P4: '⚪',
   };
   return map[sev ?? ''] ?? '🟡';
+}
+
+function buildJiraADFDoc(data: {
+  description?: string | undefined;
+  expectedResult?: string | undefined;
+  actualResult?: string | undefined;
+  url?: string | undefined;
+  testSummary?: string | undefined;
+  steps?: any[] | undefined;
+  networkLogs?: any[] | undefined;
+  consoleLogs?: any[] | undefined;
+  storageSnapshot?: any;
+  deviceFingerprint?: any;
+  triageResult?: any;
+  severity?: string | undefined;
+}) {
+  const content: any[] = [];
+
+  // Description
+  if (data.description) {
+    content.push({
+      type: 'paragraph',
+      content: [{ type: 'text', text: data.description }],
+    });
+  }
+
+  // Expected & Actual Results
+  if (data.expectedResult || data.actualResult) {
+    const resNodes: any[] = [];
+    if (data.expectedResult) {
+      resNodes.push({ type: 'text', text: 'Expected Result: ', marks: [{ type: 'strong' }] });
+      resNodes.push({ type: 'text', text: data.expectedResult + '\n' });
+    }
+    if (data.actualResult) {
+      resNodes.push({ type: 'text', text: 'Actual Result: ', marks: [{ type: 'strong' }] });
+      resNodes.push({ type: 'text', text: data.actualResult });
+    }
+    content.push({
+      type: 'paragraph',
+      content: resNodes,
+    });
+  }
+
+  // Target URL
+  if (data.url) {
+    content.push({
+      type: 'paragraph',
+      content: [
+        { type: 'text', text: 'Target URL: ', marks: [{ type: 'strong' }] },
+        { type: 'text', text: data.url, marks: [{ type: 'link', attrs: { href: data.url } }] },
+      ],
+    });
+  }
+
+  // AI Root Cause Triage
+  if (data.triageResult) {
+    const tr = data.triageResult;
+    content.push({
+      type: 'heading',
+      attrs: { level: 3 },
+      content: [{ type: 'text', text: '⚡ AI Root Cause Triage' }],
+    });
+    content.push({
+      type: 'paragraph',
+      content: [
+        { type: 'text', text: 'Root Cause: ', marks: [{ type: 'strong' }] },
+        { type: 'text', text: tr.rootCause || 'N/A' },
+      ],
+    });
+    if (tr.affectedComponent) {
+      content.push({
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: 'Affected Component: ', marks: [{ type: 'strong' }] },
+          { type: 'text', text: tr.affectedComponent },
+        ],
+      });
+    }
+    if (tr.technicalSummary) {
+      content.push({
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: 'Technical Summary: ', marks: [{ type: 'strong' }] },
+          { type: 'text', text: tr.technicalSummary },
+        ],
+      });
+    }
+    if (tr.suggestedFix) {
+      content.push({
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: 'Recommended Fix: ', marks: [{ type: 'strong' }] },
+          { type: 'text', text: tr.suggestedFix },
+        ],
+      });
+    }
+  }
+
+  // Reproduction Steps
+  if (data.testSummary || (data.steps && data.steps.length > 0)) {
+    content.push({
+      type: 'heading',
+      attrs: { level: 3 },
+      content: [{ type: 'text', text: '📋 Reproduction Steps' }],
+    });
+
+    if (data.testSummary) {
+      content.push({
+        type: 'paragraph',
+        content: [{ type: 'text', text: data.testSummary }],
+      });
+    } else if (data.steps && data.steps.length > 0) {
+      const stepItems = data.steps.map((s: any, idx: number) => {
+        const order = s.order || idx + 1;
+        const action = (s.action_type || s.actionType || 'CLICK').toUpperCase();
+        const target = s.element_label || s.elementLabel || 'element';
+        const val = s.value_masked || s.valueMasked;
+        let stepText = `${order}. ${action} on "${target}"`;
+        if (val && val !== '[REDACTED]') stepText += ` (Value: "${val}")`;
+        return stepText;
+      });
+      content.push({
+        type: 'paragraph',
+        content: [{ type: 'text', text: stepItems.join('\n') }],
+      });
+    }
+  }
+
+  // Failed Network Logs
+  if (data.networkLogs && data.networkLogs.length > 0) {
+    const failed = data.networkLogs.filter((l: any) => l.failed || (l.status >= 400));
+    if (failed.length > 0) {
+      content.push({
+        type: 'heading',
+        attrs: { level: 3 },
+        content: [{ type: 'text', text: '🌐 Failed Network Requests' }],
+      });
+      const logLines = failed.map((l: any) => {
+        let line = `[${l.method || 'GET'}] ${l.url} -> Status: ${l.status || 'FAILED'} (${l.errorText || 'Error'})`;
+        if (l.responseBody) {
+          line += `\nResponse Payload: ${typeof l.responseBody === 'string' ? l.responseBody.slice(0, 500) : JSON.stringify(l.responseBody).slice(0, 500)}`;
+        }
+        return line;
+      }).join('\n\n');
+
+      content.push({
+        type: 'codeBlock',
+        attrs: { language: 'json' },
+        content: [{ type: 'text', text: logLines }],
+      });
+    }
+  }
+
+  // Console Errors
+  if (data.consoleLogs && data.consoleLogs.length > 0) {
+    const errLogs = data.consoleLogs.filter((l: any) => l.type === 'error' || l.type === 'exception' || (typeof l === 'string' && l.includes('Error')));
+    if (errLogs.length > 0) {
+      content.push({
+        type: 'heading',
+        attrs: { level: 3 },
+        content: [{ type: 'text', text: '🚨 Console Errors & Exceptions' }],
+      });
+      const errText = errLogs.map((l: any) => typeof l === 'string' ? l : `[${l.type || 'ERROR'}] ${l.text || l.message || JSON.stringify(l)}`).join('\n');
+      content.push({
+        type: 'codeBlock',
+        attrs: { language: 'bash' },
+        content: [{ type: 'text', text: errText }],
+      });
+    }
+  }
+
+  // App Storage
+  if (data.storageSnapshot && Object.keys(data.storageSnapshot).length > 0) {
+    content.push({
+      type: 'heading',
+      attrs: { level: 3 },
+      content: [{ type: 'text', text: '💾 App Storage Snapshot' }],
+    });
+    content.push({
+      type: 'codeBlock',
+      attrs: { language: 'json' },
+      content: [{ type: 'text', text: JSON.stringify(data.storageSnapshot, null, 2) }],
+    });
+  }
+
+  // Device Details Footer
+  if (data.deviceFingerprint) {
+    const df = data.deviceFingerprint;
+    content.push({
+      type: 'paragraph',
+      content: [
+        { type: 'text', text: `\nDevice Details: OS: ${df.os || 'N/A'} | Browser: ${df.browser || 'N/A'} | Resolution: ${df.resolution || 'N/A'}` },
+      ],
+    });
+  }
+
+  content.push({
+    type: 'paragraph',
+    content: [{ type: 'text', text: `\nReported via BugBuddy | Severity: ${data.severity ?? 'P2'}` }],
+  });
+
+  return {
+    type: 'doc',
+    version: 1,
+    content,
+  };
 }
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
@@ -153,7 +370,12 @@ export async function integrationRoutes(app: FastifyInstance) {
       return reply.status(400).send({ status: 400, errors: body.error.errors });
     }
 
-    const { title, description, severity, issueType, priority, labels, assignee, userJiraUrl, userJiraEmail, userJiraToken, userJiraProject } = body.data;
+    const {
+      title, description, severity, issueType, priority, labels, assignee,
+      url, expectedResult, actualResult, testSummary, steps, networkLogs, consoleLogs,
+      storageSnapshot, deviceFingerprint, screenshot, triageResult,
+      userJiraUrl, userJiraEmail, userJiraToken, userJiraProject
+    } = body.data;
 
     let JIRA_BASE_URL = (userJiraUrl?.trim() || config.JIRA_BASE_URL).replace(/\/+$/, '');
     if (JIRA_BASE_URL && !JIRA_BASE_URL.startsWith('http://') && !JIRA_BASE_URL.startsWith('https://')) {
@@ -181,6 +403,21 @@ export async function integrationRoutes(app: FastifyInstance) {
     const effectivePriority = priority ?? severityToJiraPriority(severity);
     const jiraLabels = ['bugbuddy', ...(severity ? [severity.toLowerCase()] : []), ...(labels ?? [])];
 
+    const adfDoc = buildJiraADFDoc({
+      description,
+      expectedResult,
+      actualResult,
+      url,
+      testSummary,
+      steps,
+      networkLogs,
+      consoleLogs,
+      storageSnapshot,
+      deviceFingerprint,
+      triageResult,
+      severity,
+    });
+
     const jiraPayload: Record<string, unknown> = {
       fields: {
         project: { key: JIRA_PROJECT_KEY },
@@ -188,20 +425,7 @@ export async function integrationRoutes(app: FastifyInstance) {
         issuetype: { name: issueType },
         priority: { name: effectivePriority },
         labels: jiraLabels,
-        description: {
-          type: 'doc',
-          version: 1,
-          content: [
-            {
-              type: 'paragraph',
-              content: [{ type: 'text', text: description ?? title }],
-            },
-            {
-              type: 'paragraph',
-              content: [{ type: 'text', text: `\nReported via BugBuddy | Severity: ${severity ?? 'P2'}` }],
-            },
-          ],
-        },
+        description: adfDoc,
       },
     };
 
@@ -229,6 +453,54 @@ export async function integrationRoutes(app: FastifyInstance) {
       }
 
       const data = await resp.json() as { id: string; key: string; self: string };
+
+      // ── Upload Screenshot Attachment if present ───────────────────────────
+      if (screenshot) {
+        try {
+          let imageBuffer: Buffer | null = null;
+          let mimeType = 'image/png';
+          let fileName = 'bugbuddy-screenshot.png';
+
+          if (screenshot.startsWith('data:image/')) {
+            const match = screenshot.match(/^data:(image\/\w+);base64,(.+)$/);
+            if (match && match[1] && match[2]) {
+              mimeType = match[1];
+              const ext = mimeType.split('/')[1] || 'png';
+              fileName = `bugbuddy-screenshot.${ext}`;
+              imageBuffer = Buffer.from(match[2], 'base64');
+            }
+          } else if (screenshot.startsWith('http://') || screenshot.startsWith('https://')) {
+            const imgResp = await fetch(screenshot);
+            if (imgResp.ok) {
+              const arrayBuf = await imgResp.arrayBuffer();
+              imageBuffer = Buffer.from(arrayBuf);
+            }
+          }
+
+          if (imageBuffer) {
+            const form = new FormData();
+            const blob = new Blob([imageBuffer], { type: mimeType });
+            form.append('file', blob, fileName);
+
+            const attachResp = await fetch(`${JIRA_BASE_URL}/rest/api/3/issue/${data.key}/attachments`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Basic ${credentials}`,
+                'X-Atlassian-Token': 'no-check',
+              },
+              body: form,
+            });
+
+            if (!attachResp.ok) {
+              const attachErr = await attachResp.text();
+              request.log.warn({ status: attachResp.status, body: attachErr }, 'Failed to attach screenshot to Jira issue');
+            }
+          }
+        } catch (attachErr) {
+          request.log.warn({ err: attachErr }, 'Exception attaching screenshot to Jira issue');
+        }
+      }
+
       return reply.status(201).send({
         success: true,
         integration: 'jira',
