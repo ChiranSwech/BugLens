@@ -17,23 +17,27 @@ const minio = new MinioClient({
 
 // Ensure bucket exists on startup
 async function ensureBucket() {
-  const exists = await minio.bucketExists(config.MINIO_BUCKET);
-  if (!exists) {
-    await minio.makeBucket(config.MINIO_BUCKET, 'us-east-1');
-    // Apply a private bucket policy (no public access)
-    await minio.setBucketPolicy(config.MINIO_BUCKET, JSON.stringify({
-      Version: '2012-10-17',
-      Statement: [{
-        Effect: 'Deny',
-        Principal: '*',
-        Action: 's3:*',
-        Resource: [`arn:aws:s3:::${config.MINIO_BUCKET}/*`],
-        Condition: { StringNotEquals: { 'aws:username': config.MINIO_ACCESS_KEY } },
-      }],
-    }));
+  try {
+    const exists = await minio.bucketExists(config.MINIO_BUCKET);
+    if (!exists) {
+      await minio.makeBucket(config.MINIO_BUCKET, 'us-east-1');
+      // Apply a private bucket policy (no public access)
+      await minio.setBucketPolicy(config.MINIO_BUCKET, JSON.stringify({
+        Version: '2012-10-17',
+        Statement: [{
+          Effect: 'Deny',
+          Principal: '*',
+          Action: 's3:*',
+          Resource: [`arn:aws:s3:::${config.MINIO_BUCKET}/*`],
+          Condition: { StringNotEquals: { 'aws:username': config.MINIO_ACCESS_KEY } },
+        }],
+      }));
+    }
+  } catch (err: any) {
+    console.warn('[STORAGE] MinIO bucket check skipped (MinIO service not running locally):', err.message);
   }
 }
-ensureBucket().catch(console.error);
+ensureBucket();
 
 export async function uploadRoutes(app: FastifyInstance) {
   // ─── Request a pre-signed upload URL ──────────────────────────────────────

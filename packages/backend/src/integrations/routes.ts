@@ -370,7 +370,7 @@ export async function integrationRoutes(app: FastifyInstance) {
     const webhookUrl = userSlackWebhook?.trim() || config.SLACK_WEBHOOK_URL;
     if (!webhookUrl) {
       return reply.status(503).send({
-        type: 'https://bugbuddy.app/errors/not-configured',
+        type: 'https://buglens.ai/errors/not-configured',
         title: 'Slack not configured',
         status: 503,
         detail: 'Configure Slack Webhook URL in your Extension Settings or backend .env.',
@@ -466,7 +466,7 @@ export async function integrationRoutes(app: FastifyInstance) {
 
     if (missingKeys.length > 0) {
       return reply.status(503).send({
-        type: 'https://bugbuddy.app/errors/not-configured',
+        type: 'https://buglens.ai/errors/not-configured',
         title: 'Jira not configured',
         status: 503,
         detail: `Missing Jira key(s): ${missingKeys.join(', ')}. Please configure your personal Jira credentials in Extension Settings or backend .env.`,
@@ -617,7 +617,7 @@ export async function integrationRoutes(app: FastifyInstance) {
 
     if (missingKeys.length > 0) {
       return reply.status(503).send({
-        type: 'https://bugbuddy.app/errors/not-configured',
+        type: 'https://buglens.ai/errors/not-configured',
         title: 'Azure DevOps not configured',
         status: 503,
         detail: `Missing Azure key(s): ${missingKeys.join(', ')}. Configure your Azure DevOps credentials in Extension Settings or backend .env.`,

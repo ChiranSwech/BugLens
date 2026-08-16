@@ -15,7 +15,10 @@ function createRedisClient(): Redis {
       maxRetriesPerRequest: null,
       enableReadyCheck: false,
       lazyConnect: true,
-      retryStrategy: (times: number) => Math.min(times * 500, 30_000),
+      retryStrategy: (times: number) => {
+        if (times > 3) return null; // Stop retrying when Redis is not running locally
+        return 2000;
+      },
     };
     
     if (isTls) {
@@ -30,9 +33,12 @@ function createRedisClient(): Redis {
     // Fallback to simple string-based initialization
     return new Redis(urlStr, {
       maxRetriesPerRequest: 3,
-      enableReadyCheck: true,
-      lazyConnect: false,
-      retryStrategy: (times: number) => Math.min(times * 200, 30_000),
+      enableReadyCheck: false,
+      lazyConnect: true,
+      retryStrategy: (times: number) => {
+        if (times > 3) return null;
+        return 2000;
+      },
     });
   }
 }
@@ -44,6 +50,6 @@ redis.on('error', (err: Error) => {
   const now = Date.now();
   if (now - lastRedisErrorLog > 30_000) {
     lastRedisErrorLog = now;
-    console.error('[REDIS] Connection warning:', err.message, '(Verify REDIS_URL in environment)');
+    console.warn('[REDIS] Optional cache service not running locally:', err.message);
   }
 });

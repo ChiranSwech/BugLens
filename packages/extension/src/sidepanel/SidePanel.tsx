@@ -864,10 +864,11 @@ export const SidePanel: React.FC = () => {
         userAgent: navigator.userAgent,
       };
 
+      const fullDesc = buildFullDescription(31950);
       const allScreenshots = Object.values(screenshots).filter(s => typeof s === 'string' && s.length > 0);
       const jiraPayload = {
         title,
-        description,
+        description: fullDesc,
         severity,
         issueType: jiraIssueType,
         url: bugUrl,
@@ -1826,6 +1827,8 @@ export const SidePanel: React.FC = () => {
               <div class="card-content">${actualResult}</div>
             </div>
             ` : ''}
+          </div>
+
           ${triageResult ? `
           <div class="section-card" style="border: 1px solid rgba(129, 140, 248, 0.4); background: rgba(99, 102, 241, 0.08); padding: 16px; border-radius: 8px; margin-bottom: 16px;">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
