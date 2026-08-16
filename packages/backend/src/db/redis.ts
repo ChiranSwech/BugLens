@@ -48,8 +48,9 @@ export const redis = createRedisClient();
 let lastRedisErrorLog = 0;
 redis.on('error', (err: Error) => {
   const now = Date.now();
-  if (now - lastRedisErrorLog > 30_000) {
+  if (now - lastRedisErrorLog > 60_000) {
     lastRedisErrorLog = now;
-    console.warn('[REDIS] Optional cache service not running locally:', err.message);
+    console.warn('[REDIS] Cache service notice:', err.message);
   }
 });
+redis.on('end', () => {});

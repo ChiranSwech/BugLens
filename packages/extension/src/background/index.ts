@@ -270,37 +270,43 @@ async function refreshAccessToken(): Promise<string | null> {
 
 async function login(): Promise<{ success: boolean; error?: string }> {
   try {
-    const authUrl = `${API_BASE}/auth/google`;
+    const cleanBase = API_BASE.replace(/\/+$/, '');
+    const authUrl = `${cleanBase}/auth/google`;
     const redirectUrl = chrome.identity.getRedirectURL();
     console.log('[Background] login: authUrl =', authUrl, 'redirectUrl =', redirectUrl);
- 
+
     const responseUrl = await chrome.identity.launchWebAuthFlow({
-      url: authUrl + '?redirect_uri=' + encodeURIComponent(redirectUrl),
+      url: `${authUrl}?redirect_uri=${encodeURIComponent(redirectUrl)}`,
       interactive: true,
     });
- 
+
     console.log('[Background] login: responseUrl =', responseUrl);
- 
+
     if (!responseUrl) {
       console.warn('[Background] login: No response URL from launchWebAuthFlow');
-      return { success: false, error: 'No response URL from OAuth flow' };
+      return { success: false, error: 'OAuth window was closed or failed to load' };
     }
- 
+
     const url = new URL(responseUrl);
+    const errorParam = url.searchParams.get('error');
+    if (errorParam) {
+      return { success: false, error: `Google OAuth error: ${errorParam}` };
+    }
+
     const token = url.searchParams.get('access_token');
     const refreshToken = url.searchParams.get('refresh_token');
- 
+
     if (!token) {
       console.warn('[Background] login: No access_token in response URL:', responseUrl);
-      return { success: false, error: 'No access token in response' };
+      return { success: false, error: 'No access token returned from backend' };
     }
- 
+
     await saveToken(token, refreshToken ?? undefined);
     console.log('[Background] login: Tokens saved successfully');
     return { success: true };
-  } catch (err) {
+  } catch (err: any) {
     console.error('[Background] login error:', err);
-    return { success: false, error: (err as Error).message };
+    return { success: false, error: err?.message || 'OAuth login flow failed' };
   }
 }
 
