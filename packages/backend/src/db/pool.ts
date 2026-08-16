@@ -12,14 +12,14 @@ export const pool = new Pool({
 });
 
 // Verify connection on startup
-pool.on('connect', (client) => {
+pool.on('connect', (client: pg.PoolClient) => {
   // Enforce UTC and prevent accidental full-table scans by setting a statement timeout
   client.query("SET timezone = 'UTC'; SET statement_timeout = '30s';").catch(() => {
     // Silently ignore — the pool will retry
   });
 });
 
-pool.on('error', (err) => {
+pool.on('error', (err: Error) => {
   console.error('[DB] Unexpected pool error:', err.message);
   // Don't exit — the pool will attempt to reconnect
 });

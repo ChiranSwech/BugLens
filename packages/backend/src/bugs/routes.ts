@@ -294,7 +294,7 @@ export async function bugRoutes(app: FastifyInstance) {
 
     const minio = getMinio();
     const stepsWithUrls = await Promise.all(
-      stepsResult.rows.map(async (step) => {
+      stepsResult.rows.map(async (step: any) => {
         if (step.screenshot_id && step.storage_key) {
           try {
             const url = await minio.presignedGetObject(
