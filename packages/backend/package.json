@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "tsx watch --env-file=.env src/server.ts",
     "build": "tsc",
-    "start": "node --env-file=.env dist/server.js",
-    "start:worker": "node --env-file=.env dist/workers/runner.js",
+    "start": "node dist/server.js",
+    "start:worker": "node dist/workers/runner.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
     "test": "vitest run",
