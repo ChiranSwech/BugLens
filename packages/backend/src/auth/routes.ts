@@ -29,7 +29,7 @@ export async function authRoutes(app: FastifyInstance) {
   // ─── Step 1: Redirect to Google ──────────────────────────────────────────
   app.get<{ Querystring: { redirect_uri?: string } }>('/google', async (request, reply) => {
     const extensionRedirect = request.query.redirect_uri || '';
-    
+
     // Store extension redirect URL in the state param (base64 encoded to be safe)
     const state = extensionRedirect ? Buffer.from(extensionRedirect).toString('base64') : '';
 
@@ -124,7 +124,7 @@ export async function authRoutes(app: FastifyInstance) {
           // Allow redirects to our known frontend origins
           const isExtension = redirectUrl.startsWith('chrome-extension://') || redirectUrl.includes('.chromiumapp.org');
           const isWebDashboard = redirectUrl.startsWith('http://localhost:3000');
-          
+
           if (isExtension || isWebDashboard) {
             // Append token as hash or query param. Hash is safer for tokens but query is easier for current FE logic.
             const separator = redirectUrl.includes('?') ? '&' : '?';

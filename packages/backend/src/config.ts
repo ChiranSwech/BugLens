@@ -43,10 +43,31 @@ const ConfigSchema = z.object({
     .length(64, 'ENCRYPTION_KEY must be a 64-character hex string (32 bytes)'),
 
   // CORS
-  CORS_ORIGIN: z.string().url().or(z.literal('*')),
+  CORS_ORIGIN: z
+    .string()
+    .default('*')
+    .transform((v) => {
+      if (!v || v.trim() === '*') return '*';
+      let trimmed = v.trim();
+      if (trimmed === '*') return '*';
+      if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+        trimmed = `https://${trimmed}`;
+      }
+      return trimmed;
+    }),
   
   // API Base URL (used for OAuth redirect URIs)
-  API_BASE_URL: z.string().url().default('http://localhost:8080'),
+  API_BASE_URL: z
+    .string()
+    .default('http://localhost:8080')
+    .transform((v) => {
+      if (!v) return 'http://localhost:8080';
+      let trimmed = v.trim();
+      if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+        trimmed = `https://${trimmed}`;
+      }
+      return trimmed.replace(/\/+$/, '');
+    }),
 
   // Optional: Jira integration
   JIRA_BASE_URL: z
