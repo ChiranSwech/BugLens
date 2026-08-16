@@ -13,7 +13,7 @@
 
 import type { CreateSession } from '@buglens/shared';
 
-const DEFAULT_API_BASE = (import.meta.env.VITE_API_BASE_URL as string) || 'http://localhost:8080';
+const DEFAULT_API_BASE = (import.meta.env.VITE_API_BASE_URL as string) || 'https://buglens-j6v1.onrender.com';
 let API_BASE = DEFAULT_API_BASE;
 
 // Load stored API base on startup
@@ -268,46 +268,70 @@ async function refreshAccessToken(): Promise<string | null> {
 
 // ─── Google OAuth login ───────────────────────────────────────────────────────
 
-async function login(): Promise<{ success: boolean; error?: string }> {
-  try {
-    const cleanBase = API_BASE.replace(/\/+$/, '');
-    const authUrl = `${cleanBase}/auth/google`;
-    const redirectUrl = chrome.identity.getRedirectURL();
-    console.log('[Background] login: authUrl =', authUrl, 'redirectUrl =', redirectUrl);
+// Tab navigation listener for fallback login flow
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
+  if (changeInfo.url) {
+    const urlStr = changeInfo.url;
+    if (urlStr.includes('access_token=') && (urlStr.includes('chromiumapp.org') || urlStr.includes('chrome-extension://'))) {
+      try {
+        const url = new URL(urlStr);
+        const token = url.searchParams.get('access_token');
+        const refreshToken = url.searchParams.get('refresh_token');
+        if (token) {
+          await saveToken(token, refreshToken ?? undefined);
+          console.log('[Background] Tokens captured from tab callback successfully');
+          chrome.tabs.remove(tabId).catch(() => {});
+        }
+      } catch (e) {
+        console.error('[Background] Failed to parse token from tab callback:', e);
+      }
+    }
+  }
+});
 
-    const responseUrl = await chrome.identity.launchWebAuthFlow({
-      url: `${authUrl}?redirect_uri=${encodeURIComponent(redirectUrl)}`,
+async function login(): Promise<{ success: boolean; error?: string }> {
+  const cleanBase = API_BASE.replace(/\/+$/, '');
+  const authUrl = `${cleanBase}/auth/google`;
+  const redirectUrl = chrome.identity.getRedirectURL();
+  const fullAuthUrl = `${authUrl}?redirect_uri=${encodeURIComponent(redirectUrl)}`;
+
+  console.log('[Background] login: authUrl =', authUrl, 'redirectUrl =', redirectUrl);
+
+  let responseUrl: string | undefined;
+  try {
+    responseUrl = await chrome.identity.launchWebAuthFlow({
+      url: fullAuthUrl,
       interactive: true,
     });
-
-    console.log('[Background] login: responseUrl =', responseUrl);
-
-    if (!responseUrl) {
-      console.warn('[Background] login: No response URL from launchWebAuthFlow');
-      return { success: false, error: 'OAuth window was closed or failed to load' };
-    }
-
-    const url = new URL(responseUrl);
-    const errorParam = url.searchParams.get('error');
-    if (errorParam) {
-      return { success: false, error: `Google OAuth error: ${errorParam}` };
-    }
-
-    const token = url.searchParams.get('access_token');
-    const refreshToken = url.searchParams.get('refresh_token');
-
-    if (!token) {
-      console.warn('[Background] login: No access_token in response URL:', responseUrl);
-      return { success: false, error: 'No access token returned from backend' };
-    }
-
-    await saveToken(token, refreshToken ?? undefined);
-    console.log('[Background] login: Tokens saved successfully');
-    return { success: true };
   } catch (err: any) {
-    console.error('[Background] login error:', err);
-    return { success: false, error: err?.message || 'OAuth login flow failed' };
+    console.warn('[Background] launchWebAuthFlow warning, launching tab fallback:', err?.message);
+    await chrome.tabs.create({ url: fullAuthUrl });
+    return { success: true };
   }
+
+  if (!responseUrl) {
+    console.warn('[Background] No response URL from launchWebAuthFlow, launching tab fallback');
+    await chrome.tabs.create({ url: fullAuthUrl });
+    return { success: true };
+  }
+
+  const url = new URL(responseUrl);
+  const errorParam = url.searchParams.get('error');
+  if (errorParam) {
+    return { success: false, error: `Google OAuth error: ${errorParam}` };
+  }
+
+  const token = url.searchParams.get('access_token');
+  const refreshToken = url.searchParams.get('refresh_token');
+
+  if (!token) {
+    console.warn('[Background] login: No access_token in response URL:', responseUrl);
+    return { success: false, error: 'No access token returned from backend' };
+  }
+
+  await saveToken(token, refreshToken ?? undefined);
+  console.log('[Background] login: Tokens saved successfully');
+  return { success: true };
 }
 
 // ─── API call helper with auto-refresh ───────────────────────────────────────
