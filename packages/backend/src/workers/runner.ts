@@ -17,6 +17,10 @@ piiWorker.on('failed', (job, err) => {
   console.error(`[WORKER] pii-redaction job ${job?.id} failed:`, err.message);
 });
 
+piiWorker.on('error', (err) => {
+  console.warn('[WORKER] pii-redaction connection warning:', err.message);
+});
+
 // ─── Integration Dispatch Worker ──────────────────────────────────────────────
 const integrationWorker = new Worker('integration-dispatch', processIntegrationDispatch, {
   connection: redis,
@@ -27,6 +31,10 @@ const integrationWorker = new Worker('integration-dispatch', processIntegrationD
 
 integrationWorker.on('failed', (job, err) => {
   console.error(`[WORKER] integration-dispatch job ${job?.id} failed:`, err.message);
+});
+
+integrationWorker.on('error', (err) => {
+  console.warn('[WORKER] integration-dispatch connection warning:', err.message);
 });
 
 // ─── Graceful shutdown ────────────────────────────────────────────────────────
