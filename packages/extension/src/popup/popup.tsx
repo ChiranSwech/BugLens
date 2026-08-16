@@ -272,15 +272,7 @@ function App() {
     return (
       <div className="popup-container" style={{ maxHeight: '520px', overflowY: 'auto' }}>
         <header className="popup-header" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '8px', marginBottom: '8px' }}>
-          <div className="logo-small" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: '16px', height: '16px', color: '#818cf8', flexShrink: 0 }}>
-              <rect x="6" y="8" width="12" height="11" rx="4" />
-              <path d="M12 8V4" />
-              <path d="M9 12h6" />
-              <path d="M9 4.5a3 3 0 0 1 6 0" />
-            </svg>
-            <span style={{ fontWeight: 700, fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Personal Keys & Settings</span>
-          </div>
+          <BugLensLogo size={20} showText={true} badge="SETTINGS" />
         </header>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '4px 0' }}>

@@ -33,6 +33,7 @@ const JiraSchema = z.object({
   storageSnapshot: z.any().optional(),
   deviceFingerprint: z.any().optional(),
   screenshot: z.string().optional(),
+  screenshots: z.array(z.string()).optional(),
   triageResult: z.any().optional(),
   userJiraUrl: z.string().optional(),
   userJiraEmail: z.string().optional(),
@@ -47,6 +48,7 @@ const AzureSchema = z.object({
   workItemType: z.enum(['Bug', 'Task', 'User Story', 'Feature']).default('Bug'),
   priority: z.number().int().min(1).max(4).default(2),
   assignee: z.string().optional(),
+  triageResult: z.any().optional(),
   userAzureOrg: z.string().optional(),
   userAzureProject: z.string().optional(),
   userAzurePat: z.string().optional(),
@@ -99,12 +101,50 @@ function buildJiraADFDoc(data: {
     });
   }
 
+  // AI Root Cause Triage
+  if (data.triageResult) {
+    const tr = data.triageResult;
+    content.push({
+      type: 'heading',
+      attrs: { level: 3 },
+      content: [{ type: 'text', text: '🧠 AI Root Cause Triage' }],
+    });
+    content.push({
+      type: 'paragraph',
+      content: [
+        { type: 'text', text: 'Affected Component: ', marks: [{ type: 'strong' }] },
+        { type: 'text', text: tr.affectedComponent || 'N/A' },
+        { type: 'text', text: ' | ' },
+        { type: 'text', text: 'Root Cause: ', marks: [{ type: 'strong' }] },
+        { type: 'text', text: tr.rootCause || 'N/A' },
+      ],
+    });
+    if (tr.technicalSummary) {
+      content.push({
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: 'Technical Summary: ', marks: [{ type: 'strong' }] },
+          { type: 'text', text: tr.technicalSummary },
+        ],
+      });
+    }
+    if (tr.suggestedFix) {
+      content.push({
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: 'Recommended Fix: ', marks: [{ type: 'strong' }] },
+          { type: 'text', text: tr.suggestedFix },
+        ],
+      });
+    }
+  }
+
   // Expected & Actual Results
   if (data.expectedResult || data.actualResult) {
     const resNodes: any[] = [];
     if (data.expectedResult) {
       resNodes.push({ type: 'text', text: 'Expected Result: ', marks: [{ type: 'strong' }] });
-      resNodes.push({ type: 'text', text: data.expectedResult + '\n' });
+      resNodes.push({ type: 'text', text: `${data.expectedResult}\n` });
     }
     if (data.actualResult) {
       resNodes.push({ type: 'text', text: 'Actual Result: ', marks: [{ type: 'strong' }] });
@@ -127,64 +167,15 @@ function buildJiraADFDoc(data: {
     });
   }
 
-  // AI Root Cause Triage
-  if (data.triageResult) {
-    const tr = data.triageResult;
-    content.push({
-      type: 'heading',
-      attrs: { level: 3 },
-      content: [{ type: 'text', text: '⚡ AI Root Cause Triage' }],
-    });
-    content.push({
-      type: 'paragraph',
-      content: [
-        { type: 'text', text: 'Root Cause: ', marks: [{ type: 'strong' }] },
-        { type: 'text', text: tr.rootCause || 'N/A' },
-      ],
-    });
-    if (tr.affectedComponent) {
-      content.push({
-        type: 'paragraph',
-        content: [
-          { type: 'text', text: 'Affected Component: ', marks: [{ type: 'strong' }] },
-          { type: 'text', text: tr.affectedComponent },
-        ],
-      });
-    }
-    if (tr.technicalSummary) {
-      content.push({
-        type: 'paragraph',
-        content: [
-          { type: 'text', text: 'Technical Summary: ', marks: [{ type: 'strong' }] },
-          { type: 'text', text: tr.technicalSummary },
-        ],
-      });
-    }
-    if (tr.suggestedFix) {
-      content.push({
-        type: 'paragraph',
-        content: [
-          { type: 'text', text: 'Recommended Fix: ', marks: [{ type: 'strong' }] },
-          { type: 'text', text: tr.suggestedFix },
-        ],
-      });
-    }
-  }
-
   // Reproduction Steps
-  if (data.testSummary || (data.steps && data.steps.length > 0)) {
+  if ((data.steps && data.steps.length > 0) || data.testSummary) {
     content.push({
       type: 'heading',
       attrs: { level: 3 },
       content: [{ type: 'text', text: '📋 Reproduction Steps' }],
     });
 
-    if (data.testSummary) {
-      content.push({
-        type: 'paragraph',
-        content: [{ type: 'text', text: data.testSummary }],
-      });
-    } else if (data.steps && data.steps.length > 0) {
+    if (data.steps && data.steps.length > 0) {
       const stepItems = data.steps.map((s: any, idx: number) => {
         const order = s.order || idx + 1;
         const action = (s.action_type || s.actionType || 'CLICK').toUpperCase();
@@ -192,6 +183,7 @@ function buildJiraADFDoc(data: {
         const val = s.value_masked || s.valueMasked;
         let stepText = `${order}. ${action} on "${target}"`;
         if (val && val !== '[REDACTED]') stepText += ` (Value: "${val}")`;
+        if (s.pageUrl || s.page_url) stepText += ` [${s.pageUrl || s.page_url}]`;
         return stepText;
       });
       content.push({
@@ -199,49 +191,53 @@ function buildJiraADFDoc(data: {
         content: [{ type: 'text', text: stepItems.join('\n') }],
       });
     }
+
+    if (data.testSummary) {
+      content.push({
+        type: 'paragraph',
+        content: [{ type: 'text', text: data.testSummary }],
+      });
+    }
   }
 
-  // Failed Network Logs
+  // Network Logs
   if (data.networkLogs && data.networkLogs.length > 0) {
-    const failed = data.networkLogs.filter((l: any) => l.failed || (l.status >= 400));
-    if (failed.length > 0) {
-      content.push({
-        type: 'heading',
-        attrs: { level: 3 },
-        content: [{ type: 'text', text: '🌐 Failed Network Requests' }],
-      });
-      const logLines = failed.map((l: any) => {
-        let line = `[${l.method || 'GET'}] ${l.url} -> Status: ${l.status || 'FAILED'} (${l.errorText || 'Error'})`;
-        if (l.responseBody) {
-          line += `\nResponse Payload: ${typeof l.responseBody === 'string' ? l.responseBody.slice(0, 500) : JSON.stringify(l.responseBody).slice(0, 500)}`;
-        }
-        return line;
-      }).join('\n\n');
+    const logsToInclude = data.networkLogs.filter((l: any) => l.failed || (l.status && l.status >= 400) || l.errorText);
+    const targetLogs = logsToInclude.length > 0 ? logsToInclude : data.networkLogs.slice(0, 10);
+    content.push({
+      type: 'heading',
+      attrs: { level: 3 },
+      content: [{ type: 'text', text: '🌐 Network Log Evidence' }],
+    });
+    const logLines = targetLogs.map((l: any) => {
+      let line = `[${l.method || 'GET'}] ${l.url} -> Status: ${l.status || 'FAILED'}`;
+      if (l.responseBody) {
+        const bodyStr = typeof l.responseBody === 'string' ? l.responseBody : JSON.stringify(l.responseBody);
+        line += `\nResponse Payload: ${bodyStr.slice(0, 400)}`;
+      }
+      return line;
+    }).join('\n\n');
 
-      content.push({
-        type: 'codeBlock',
-        attrs: { language: 'json' },
-        content: [{ type: 'text', text: logLines }],
-      });
-    }
+    content.push({
+      type: 'codeBlock',
+      attrs: { language: 'json' },
+      content: [{ type: 'text', text: logLines }],
+    });
   }
 
-  // Console Errors
+  // Console Logs
   if (data.consoleLogs && data.consoleLogs.length > 0) {
-    const errLogs = data.consoleLogs.filter((l: any) => l.type === 'error' || l.type === 'exception' || (typeof l === 'string' && l.includes('Error')));
-    if (errLogs.length > 0) {
-      content.push({
-        type: 'heading',
-        attrs: { level: 3 },
-        content: [{ type: 'text', text: '🚨 Console Errors & Exceptions' }],
-      });
-      const errText = errLogs.map((l: any) => typeof l === 'string' ? l : `[${l.type || 'ERROR'}] ${l.text || l.message || JSON.stringify(l)}`).join('\n');
-      content.push({
-        type: 'codeBlock',
-        attrs: { language: 'bash' },
-        content: [{ type: 'text', text: errText }],
-      });
-    }
+    content.push({
+      type: 'heading',
+      attrs: { level: 3 },
+      content: [{ type: 'text', text: '🚨 Console Error Logs' }],
+    });
+    const errText = data.consoleLogs.map((l: any) => typeof l === 'string' ? l : `[${(l.type || 'LOG').toUpperCase()}] ${l.text || l.message || JSON.stringify(l)}`).join('\n');
+    content.push({
+      type: 'codeBlock',
+      attrs: { language: 'bash' },
+      content: [{ type: 'text', text: errText.slice(0, 2000) }],
+    });
   }
 
   // App Storage
@@ -249,12 +245,12 @@ function buildJiraADFDoc(data: {
     content.push({
       type: 'heading',
       attrs: { level: 3 },
-      content: [{ type: 'text', text: '💾 App Storage Snapshot' }],
+      content: [{ type: 'text', text: '💾 Storage Snapshot' }],
     });
     content.push({
       type: 'codeBlock',
       attrs: { language: 'json' },
-      content: [{ type: 'text', text: JSON.stringify(data.storageSnapshot, null, 2) }],
+      content: [{ type: 'text', text: JSON.stringify(data.storageSnapshot, null, 2).slice(0, 2000) }],
     });
   }
 
@@ -264,7 +260,7 @@ function buildJiraADFDoc(data: {
     content.push({
       type: 'paragraph',
       content: [
-        { type: 'text', text: `\nDevice Details: OS: ${df.os || 'N/A'} | Browser: ${df.browser || 'N/A'} | Resolution: ${df.resolution || 'N/A'}` },
+        { type: 'text', text: `\nDevice Environment: OS: ${df.os || 'N/A'} | Browser: ${df.browser || 'N/A'} | Resolution: ${df.resolution || 'N/A'}` },
       ],
     });
   }
@@ -282,6 +278,83 @@ function buildJiraADFDoc(data: {
 }
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
+
+
+function buildAzureHTMLDoc(data: {
+  description?: string | undefined;
+  expectedResult?: string | undefined;
+  actualResult?: string | undefined;
+  url?: string | undefined;
+  testSummary?: string | undefined;
+  steps?: any[] | undefined;
+  networkLogs?: any[] | undefined;
+  consoleLogs?: any[] | undefined;
+  storageSnapshot?: any;
+  deviceFingerprint?: any;
+  triageResult?: any;
+  severity?: string | undefined;
+}) {
+  let html = '';
+  if (data.description) {
+    html += `<div>${data.description}</div><br/>`;
+  }
+  if (data.triageResult) {
+    const tr = data.triageResult;
+    html += `<div style="background:#f8fafc;border:1px solid #cbd5e1;padding:12px;border-radius:6px;margin-bottom:12px;">`;
+    html += `<h3 style="color:#6366f1;margin-top:0;">🧠 AI Root Cause Triage</h3>`;
+    html += `<p><b>Component:</b> <span style="background:#6366f1;color:#fff;padding:2px 6px;border-radius:4px;">${tr.affectedComponent || 'N/A'}</span></p>`;
+    html += `<p><b>Root Cause:</b> ${tr.rootCause || 'N/A'}</p>`;
+    if (tr.technicalSummary) html += `<p><b>Technical Summary:</b> ${tr.technicalSummary}</p>`;
+    if (tr.suggestedFix) html += `<p style="color:#059669;"><b>💡 Recommended Fix:</b> ${tr.suggestedFix}</p>`;
+    html += `</div>`;
+  }
+  if (data.expectedResult || data.actualResult) {
+    html += `<div>`;
+    if (data.expectedResult) html += `<p><b>Expected Result:</b> ${data.expectedResult}</p>`;
+    if (data.actualResult) html += `<p><b>Actual Result:</b> ${data.actualResult}</p>`;
+    html += `</div>`;
+  }
+  if (data.url) {
+    html += `<p><b>Target URL:</b> <a href="${data.url}">${data.url}</a></p>`;
+  }
+  if (data.steps && data.steps.length > 0) {
+    html += `<h3>📋 Reproduction Steps</h3><ol>`;
+    data.steps.forEach((s: any) => {
+      const action = (s.action_type || s.actionType || 'CLICK').toUpperCase();
+      const target = s.element_label || s.elementLabel || 'element';
+      const val = s.value_masked || s.valueMasked;
+      let text = `<b>${action}</b> on "${target}"`;
+      if (val && val !== '[REDACTED]') text += ` (Value: "${val}")`;
+      html += `<li>${text}</li>`;
+    });
+    html += `</ol>`;
+  } else if (data.testSummary) {
+    html += `<h3>📋 Reproduction Steps</h3><pre>${data.testSummary}</pre>`;
+  }
+  if (data.networkLogs && data.networkLogs.length > 0) {
+    const failed = data.networkLogs.filter((l: any) => l.failed || (l.status && l.status >= 400));
+    const targetLogs = failed.length > 0 ? failed : data.networkLogs.slice(0, 10);
+    html += `<h3>🌐 Failed Network Requests</h3><pre style="background:#1e293b;color:#f8fafc;padding:10px;border-radius:6px;">`;
+    targetLogs.forEach((l: any) => {
+      html += `[${l.method || 'GET'}] ${l.url} -> Status: ${l.status || 'FAILED'}\n`;
+      if (l.responseBody) html += `Payload: ${typeof l.responseBody === 'string' ? l.responseBody.slice(0, 300) : JSON.stringify(l.responseBody).slice(0, 300)}\n\n`;
+    });
+    html += `</pre>`;
+  }
+  if (data.consoleLogs && data.consoleLogs.length > 0) {
+    html += `<h3>🚨 Console Logs</h3><pre style="background:#1e293b;color:#f8fafc;padding:10px;border-radius:6px;">`;
+    data.consoleLogs.forEach((l: any) => {
+      html += typeof l === 'string' ? `${l}\n` : `[${(l.type || 'LOG').toUpperCase()}] ${l.text || l.message || JSON.stringify(l)}\n`;
+    });
+    html += `</pre>`;
+  }
+  if (data.deviceFingerprint) {
+    const df = data.deviceFingerprint;
+    html += `<p style="font-size:11px;color:#64748b;">Device: OS: ${df.os || 'N/A'} | Browser: ${df.browser || 'N/A'} | Resolution: ${df.resolution || 'N/A'}</p>`;
+  }
+  return html;
+}
+
 
 export async function integrationRoutes(app: FastifyInstance) {
   // ── Slack ──────────────────────────────────────────────────────────────────
@@ -454,23 +527,32 @@ export async function integrationRoutes(app: FastifyInstance) {
 
       const data = await resp.json() as { id: string; key: string; self: string };
 
-      // ── Upload Screenshot Attachment if present ───────────────────────────
-      if (screenshot) {
+      // ── Upload Screenshot Attachments if present ───────────────────────────
+      const screenshotsToUpload: string[] = [];
+      if (Array.isArray(body.data.screenshots) && body.data.screenshots.length > 0) {
+        screenshotsToUpload.push(...body.data.screenshots);
+      } else if (screenshot) {
+        screenshotsToUpload.push(screenshot);
+      }
+
+      for (let i = 0; i < screenshotsToUpload.length; i++) {
+        const sc = screenshotsToUpload[i];
+        if (!sc) continue;
         try {
           let imageBuffer: Buffer | null = null;
           let mimeType = 'image/png';
-          let fileName = 'buglens-screenshot.png';
+          let fileName = `buglens-evidence-${i + 1}.png`;
 
-          if (screenshot.startsWith('data:image/')) {
-            const match = screenshot.match(/^data:(image\/\w+);base64,(.+)$/);
+          if (sc.startsWith('data:image/')) {
+            const match = sc.match(/^data:(image\/\w+);base64,(.+)$/);
             if (match && match[1] && match[2]) {
               mimeType = match[1];
               const ext = mimeType.split('/')[1] || 'png';
-              fileName = `buglens-screenshot.${ext}`;
+              fileName = `buglens-evidence-${i + 1}.${ext}`;
               imageBuffer = Buffer.from(match[2], 'base64');
             }
-          } else if (screenshot.startsWith('http://') || screenshot.startsWith('https://')) {
-            const imgResp = await fetch(screenshot);
+          } else if (sc.startsWith('http://') || sc.startsWith('https://')) {
+            const imgResp = await fetch(sc);
             if (imgResp.ok) {
               const arrayBuf = await imgResp.arrayBuffer();
               imageBuffer = Buffer.from(arrayBuf);
@@ -493,11 +575,11 @@ export async function integrationRoutes(app: FastifyInstance) {
 
             if (!attachResp.ok) {
               const attachErr = await attachResp.text();
-              request.log.warn({ status: attachResp.status, body: attachErr }, 'Failed to attach screenshot to Jira issue');
+              request.log.warn({ status: attachResp.status, body: attachErr }, `Failed to attach screenshot ${i + 1} to Jira issue`);
             }
           }
         } catch (attachErr) {
-          request.log.warn({ err: attachErr }, 'Exception attaching screenshot to Jira issue');
+          request.log.warn({ err: attachErr }, `Exception attaching screenshot ${i + 1} to Jira issue`);
         }
       }
 
@@ -549,7 +631,7 @@ export async function integrationRoutes(app: FastifyInstance) {
 
     const patchDoc: Array<{ op: string; path: string; value: unknown }> = [
       { op: 'add', path: '/fields/System.Title', value: title },
-      { op: 'add', path: '/fields/System.Description', value: description ?? title },
+      { op: 'add', path: '/fields/System.Description', value: buildAzureHTMLDoc(body.data) },
       { op: 'add', path: '/fields/Microsoft.VSTS.Common.Priority', value: effectivePriority },
       { op: 'add', path: '/fields/System.Tags', value: `BugLens; ${severity ?? 'P2'}` },
     ];

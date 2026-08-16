@@ -73,7 +73,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["annotator.html", "src/devtools/panel.html"],
+      "resources": ["logo.png", "annotator.html", "src/devtools/panel.html"],
       "matches": ["<all_urls>"]
     }
   ]
