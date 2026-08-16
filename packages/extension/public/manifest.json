@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "BugLens v2",
-  "version": "2.0.0",
+  "name": "Bug Lens v2.0",
+  "version": "2.0.1",
   "description": "Enterprise bug capture and reporting — record, annotate, and submit bugs in seconds.",
   "permissions": [
     "storage",
@@ -32,7 +32,7 @@
   },
   "action": {
     "default_popup": "src/popup/index.html",
-    "default_title": "BugLens",
+    "default_title": "Bug Lens v2.0",
     "default_icon": {
       "16": "BugLens16.png",
       "32": "BugLens32.png",
