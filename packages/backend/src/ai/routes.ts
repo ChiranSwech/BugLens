@@ -7,12 +7,38 @@ const GenerateSchema = z.object({
   userOpenAiKey: z.string().optional(),
   steps: z.array(
     z.object({
-      actionType: z.string(),
+      actionType: z.string().optional(),
       elementLabel: z.string().optional(),
       pageUrl: z.string().optional(),
       valueMasked: z.string().optional(),
     })
   ).min(1).max(200),
+  networkLogs: z.array(
+    z.object({
+      method: z.string().optional(),
+      url: z.string().optional(),
+      status: z.number().nullable().optional(),
+      failed: z.boolean().optional(),
+      errorText: z.string().optional(),
+      responseBody: z.string().optional(),
+    })
+  ).optional(),
+  consoleLogs: z.array(
+    z.object({
+      type: z.string().optional(),
+      text: z.string().optional(),
+      url: z.string().optional(),
+      line: z.number().optional(),
+    })
+  ).optional(),
+  screenshots: z.array(
+    z.object({
+      stepIndex: z.number(),
+      dataUrl: z.string(),
+    })
+  ).max(5).optional(),
+  bugUrl: z.string().optional(),
+  testData: z.string().optional(),
 });
 
 const TriageSchema = z.object({
@@ -64,12 +90,24 @@ export async function aiRoutes(app: FastifyInstance) {
       });
     }
 
-    const { steps, userOpenAiKey } = body.data;
+    const {
+      steps,
+      networkLogs = [],
+      consoleLogs = [],
+      screenshots = [],
+      bugUrl,
+      testData,
+      userOpenAiKey,
+    } = body.data;
+
+    // Filter relevant telemetry anomalies
+    const failedNetwork = networkLogs.filter(n => n.failed || (n.status !== null && n.status !== undefined && n.status >= 400) || n.errorText);
+    const errorConsole = consoleLogs.filter(c => c.type === 'error' || c.type === 'exception');
 
     const apiKey = userOpenAiKey?.trim() || config.OPENAI_API_KEY;
     if (!apiKey) {
       // Fallback: Smart heuristic step deduplication and consolidation when offline / no key
-      return reply.send(summarizeStepsHeuristically(steps));
+      return reply.send(summarizeStepsHeuristically(steps, failedNetwork, errorConsole, screenshots));
     }
 
     const stepsText = steps.map((s, i) => {
@@ -80,23 +118,71 @@ export async function aiRoutes(app: FastifyInstance) {
       return `${i + 1}. ${action} on "${label}"${value}${url}`;
     }).join('\n');
 
-    const prompt = `You are a Principal QA Engineer. Based on the following raw recorded user steps (which contain ${steps.length} raw micro-events like repetitive clicks, character inputs, and scroll events), produce a clean, concise, high-level Reproduction Steps list.
+    const netText = failedNetwork.slice(0, 5).map(n => {
+      const respSnippet = n.responseBody ? ` | Response: ${n.responseBody.slice(0, 300)}` : '';
+      return `${n.method || 'GET'} ${n.url} -> Status: ${n.status ?? 'Failed'} (${n.errorText || 'Error'})${respSnippet}`;
+    }).join('\n');
 
-RAW CAPTURED EVENTS (${steps.length} total):
+    const consoleText = errorConsole.slice(0, 5).map(c => `[${(c.type || 'ERROR').toUpperCase()}] ${c.text || ''}`).join('\n');
+
+    const promptText = `You are a Principal QA and Software Reliability Engineer doing automated bug defect synthesis.
+Based on the recorded user actions, captured visual screenshots, and runtime logs, produce a complete and precise bug report.
+
+CONTEXT:
+Application URL: ${bugUrl || 'N/A'}
+Test Data: ${testData || 'None'}
+
+USER ACTIONS (${steps.length} total events):
 ${stepsText}
 
-REQUIREMENTS FOR STEP CONSOLIDATION:
-1. CONSOLIDATION: If there are many raw granular steps (e.g. 10 to 50+ events), DO NOT list all 50 raw steps. Consolidate consecutive form field inputs, rapid double clicks, scroll noise, and page transitions into 4 to 8 high-level, human-readable reproduction steps (e.g., '1. Open Login page', '2. Enter username and password credentials', '3. Click Login button', '4. Observe error toast').
-2. PRESERVE INTENT & CONTEXT: Do not lose key button targets, essential input values, or critical failure context.
-3. NO NOISE: Do NOT include raw CSS selectors, HTML tags, full query string URLs, or debug noise.
+FAILED NETWORK REQUESTS:
+${netText || 'None recorded'}
 
-Output a JSON object with exactly these fields:
-- title: Short, specific bug title (max 80 chars, starting with a verb e.g. "Unable to submit registration form")
-- description: Concise professional bug description (2-3 sentences explaining what happened, expected behavior, and user impact)
-- suggestedSeverity: One of "P0", "P1", "P2", "P3", "P4"
-- stepsSummary: A clean, consolidated numbered list string of 4 to 8 steps, separated by newline ('\n') characters.
+CONSOLE ERRORS & EXCEPTIONS:
+${consoleText || 'None recorded'}
 
-Return ONLY valid JSON, no markdown.`;
+SCREENSHOTS ATTACHED:
+${screenshots.length > 0 ? `${screenshots.length} visual frame(s) provided below.` : 'No images attached.'}
+
+SYNTHESIS GOALS:
+1. TITLE: Short, specific, actionable bug title starting with a verb or clear issue statement (max 80 chars, e.g. "Unable to submit checkout form due to 400 Bad Request").
+2. DESCRIPTION: Concise 2-3 sentence overview explaining what the user was doing, what broke, and the impact.
+3. EXPECTED RESULT: Clear statement of what a normal user or specification expects to happen (e.g., "The order should be submitted successfully and redirect to the order confirmation page.").
+4. ACTUAL RESULT: Clear statement of what actually happened, referencing visual error states, banners, disabled components, or underlying 4xx/5xx network/console errors (e.g., "The submit button became disabled, a toast error 'Payment Failed' appeared, and network request to /api/checkout returned HTTP 400.").
+5. SUGGESTED SEVERITY: One of "P0", "P1", "P2", "P3", "P4" based on severity (P0 = critical blocker/data loss, P1 = major flow broken with no workaround, P2 = normal feature failure, P3 = minor issue, P4 = cosmetic).
+6. STEPS SUMMARY: A clean, human-readable numbered list of 4 to 8 reproduction steps (consolidate rapid keystrokes, repetitive clicks, and scrolls into clean high-level steps).
+7. RECOMMENDED MAIN IMAGE INDEX: The stepIndex integer of the screenshot that best illustrates the defect (or null if none).
+
+Output a single JSON object with exactly these fields:
+{
+  "title": string,
+  "description": string,
+  "expectedResult": string,
+  "actualResult": string,
+  "suggestedSeverity": "P0" | "P1" | "P2" | "P3" | "P4",
+  "stepsSummary": string,
+  "recommendedMainImageIndex": number | null
+}
+
+Return ONLY valid JSON, no markdown formatting.`;
+
+    // Construct multimodal messages with low-detail vision to keep token costs ultra-low (85 tokens per image)
+    const userMessageContent: any[] = [{ type: 'text', text: promptText }];
+
+    // Attach up to 2 candidate screenshots with detail: 'low'
+    if (screenshots && screenshots.length > 0) {
+      for (const shot of screenshots.slice(0, 2)) {
+        if (shot.dataUrl && shot.dataUrl.startsWith('data:image/')) {
+          userMessageContent.push({
+            type: 'image_url',
+            image_url: {
+              url: shot.dataUrl,
+              detail: 'low',
+            },
+          });
+        }
+      }
+    }
 
     try {
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -107,7 +193,7 @@ Return ONLY valid JSON, no markdown.`;
         },
         body: JSON.stringify({
           model: 'gpt-4o-mini',
-          messages: [{ role: 'user', content: prompt }],
+          messages: [{ role: 'user', content: userMessageContent }],
           temperature: 0.3,
           max_tokens: 1000,
         }),
@@ -115,7 +201,7 @@ Return ONLY valid JSON, no markdown.`;
 
       if (!response.ok) {
         request.log.warn({ status: response.status }, 'OpenAI API error, falling back to heuristic summarizer');
-        return reply.send(summarizeStepsHeuristically(steps));
+        return reply.send(summarizeStepsHeuristically(steps, failedNetwork, errorConsole, screenshots));
       }
 
       const data = await response.json() as {
@@ -125,25 +211,31 @@ Return ONLY valid JSON, no markdown.`;
 
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
-        return reply.send(summarizeStepsHeuristically(steps));
+        return reply.send(summarizeStepsHeuristically(steps, failedNetwork, errorConsole, screenshots));
       }
 
       const parsed = JSON.parse(jsonMatch[0]) as {
         title?: string;
         description?: string;
+        expectedResult?: string;
+        actualResult?: string;
         suggestedSeverity?: string;
         stepsSummary?: string;
+        recommendedMainImageIndex?: number | null;
       };
 
       return reply.send({
         title: parsed.title ?? '',
         description: parsed.description ?? '',
+        expectedResult: parsed.expectedResult ?? '',
+        actualResult: parsed.actualResult ?? '',
         suggestedSeverity: parsed.suggestedSeverity ?? 'P2',
         stepsSummary: parsed.stepsSummary ?? '',
+        recommendedMainImageIndex: parsed.recommendedMainImageIndex ?? (screenshots.length > 0 ? screenshots[screenshots.length - 1]?.stepIndex ?? null : null),
       });
     } catch (err) {
       request.log.error({ err }, 'AI generation failed, using heuristic summary');
-      return reply.send(summarizeStepsHeuristically(steps));
+      return reply.send(summarizeStepsHeuristically(steps, failedNetwork, errorConsole, screenshots));
     }
   });
 
@@ -151,9 +243,30 @@ Return ONLY valid JSON, no markdown.`;
 
 type RawStepInput = { actionType?: string | undefined; elementLabel?: string | undefined; pageUrl?: string | undefined; valueMasked?: string | undefined };
 
-function summarizeStepsHeuristically(steps: RawStepInput[]): { title: string; description: string; suggestedSeverity: string; stepsSummary: string } {
+function summarizeStepsHeuristically(
+  steps: RawStepInput[],
+  failedNetwork: any[] = [],
+  consoleErrors: any[] = [],
+  screenshots: Array<{ stepIndex: number; dataUrl: string }> = []
+): {
+  title: string;
+  description: string;
+  expectedResult: string;
+  actualResult: string;
+  suggestedSeverity: string;
+  stepsSummary: string;
+  recommendedMainImageIndex: number | null;
+} {
   if (steps.length === 0) {
-    return { title: 'User Bug Report', description: 'Bug report recorded via BugLens.', suggestedSeverity: 'P2', stepsSummary: '1. Navigate to target URL.' };
+    return {
+      title: 'User Bug Report',
+      description: 'Bug report recorded via BugLens.',
+      expectedResult: 'The application should function without errors.',
+      actualResult: 'An unexpected issue occurred.',
+      suggestedSeverity: 'P2',
+      stepsSummary: '1. Navigate to target URL.',
+      recommendedMainImageIndex: null,
+    };
   }
 
   const consolidated: string[] = [];
@@ -195,11 +308,31 @@ function summarizeStepsHeuristically(steps: RawStepInput[]): { title: string; de
   const lastStep = steps[steps.length - 1];
   const lastAction = lastStep?.elementLabel ? `on "${lastStep.elementLabel}"` : '';
 
+  let expectedResult = 'The system should process the action successfully, update the interface, and complete the user flow without error.';
+  let actualResult = `The user was unable to complete the interaction ${lastAction}.`;
+  let suggestedSeverity = 'P2';
+
+  if (failedNetwork.length > 0) {
+    const topNet = failedNetwork[0];
+    actualResult = `Network request to ${topNet.url || 'endpoint'} failed with status ${topNet.status ?? 'Connection Failed'}. ${topNet.responseBody ? `Response: ${topNet.responseBody.slice(0, 150)}` : (topNet.errorText || '')}`;
+    if (topNet.status >= 500) suggestedSeverity = 'P1';
+  } else if (consoleErrors.length > 0) {
+    const topConsole = consoleErrors[0];
+    actualResult = `Runtime exception triggered: "${(topConsole.text || '').slice(0, 150)}". UI did not respond as expected.`;
+  }
+
+  const recommendedMainImageIndex = screenshots.length > 0
+    ? screenshots[screenshots.length - 1]?.stepIndex ?? null
+    : null;
+
   return {
     title: `Issue encountered during interaction ${lastAction}`,
     description: `Recorded session containing ${steps.length} interaction steps leading to an issue ${lastAction}.`,
-    suggestedSeverity: 'P2',
+    expectedResult,
+    actualResult,
+    suggestedSeverity,
     stepsSummary,
+    recommendedMainImageIndex,
   };
 }
 

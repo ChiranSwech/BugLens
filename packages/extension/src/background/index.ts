@@ -596,7 +596,7 @@ async function detachDebugger(): Promise<void> {
 }
 
 // Listen for debugger network and runtime events
-chrome.debugger.onEvent.addListener((_source, method, params: any) => {
+chrome.debugger.onEvent.addListener((source, method, params: any) => {
   if (!currentSessionId) return;
 
   if (method === 'Runtime.consoleAPICalled') {
@@ -610,9 +610,7 @@ chrome.debugger.onEvent.addListener((_source, method, params: any) => {
       column: stack?.columnNumber,
       timestamp: params.timestamp,
     });
-    if (consoleLogs.length % 5 === 0) {
-      chrome.storage.local.set({ consoleLogs }).catch(() => {});
-    }
+    chrome.storage.local.set({ consoleLogs }).catch(() => {});
   }
 
   if (method === 'Runtime.exceptionThrown') {
@@ -625,9 +623,7 @@ chrome.debugger.onEvent.addListener((_source, method, params: any) => {
       column: params.exceptionDetails.columnNumber,
       timestamp: params.timestamp,
     });
-    if (consoleLogs.length % 5 === 0) {
-      chrome.storage.local.set({ consoleLogs }).catch(() => {});
-    }
+    chrome.storage.local.set({ consoleLogs }).catch(() => {});
   }
 
   if (method === 'Network.requestWillBeSent') {
@@ -654,6 +650,9 @@ chrome.debugger.onEvent.addListener((_source, method, params: any) => {
       entry.status = params.response?.status ?? null;
       entry.statusText = params.response?.statusText ?? null;
       entry.responseHeaders = params.response?.headers ?? {};
+      if (entry.status !== null && entry.status >= 400) {
+        entry.failed = true;
+      }
     }
   }
 
@@ -661,20 +660,30 @@ chrome.debugger.onEvent.addListener((_source, method, params: any) => {
     const entry = pendingRequests.get(params.requestId);
     if (entry) {
       entry.duration = params.timestamp * 1000 - entry.startTime;
-      
+      if (entry.status !== null && entry.status >= 400) {
+        entry.failed = true;
+      }
+
       const finalizeNetworkLog = () => {
         networkLogs.push(entry);
         pendingRequests.delete(params.requestId);
-        if (networkLogs.length % 5 === 0) {
-          chrome.storage.local.set({ networkLogs }).catch(() => { });
-        }
+        chrome.storage.local.set({ networkLogs }).catch(() => { });
       };
 
-      if (debuggerTabId) {
-        chrome.debugger.sendCommand({ tabId: debuggerTabId }, 'Network.getResponseBody', { requestId: params.requestId })
+      const targetTabId = (source && 'tabId' in source && source.tabId) ? source.tabId : debuggerTabId;
+      if (targetTabId) {
+        chrome.debugger.sendCommand({ tabId: targetTabId }, 'Network.getResponseBody', { requestId: params.requestId })
           .then((res: any) => {
             if (res?.body) {
-              entry.responseBody = res.body.length > 50000 ? res.body.substring(0, 50000) + '... [TRUNCATED]' : res.body;
+              let bodyContent = res.body;
+              if (res.base64Encoded) {
+                try {
+                  bodyContent = atob(res.body);
+                } catch {
+                  // Fall back to original body if atob fails
+                }
+              }
+              entry.responseBody = bodyContent.length > 50000 ? bodyContent.substring(0, 50000) + '... [TRUNCATED]' : bodyContent;
             }
             finalizeNetworkLog();
           })
@@ -689,7 +698,7 @@ chrome.debugger.onEvent.addListener((_source, method, params: any) => {
     const entry = pendingRequests.get(params.requestId);
     if (entry) {
       entry.failed = true;
-      entry.errorText = params.errorText;
+      entry.errorText = params.errorText || 'Connection or transport failure';
       entry.duration = params.timestamp * 1000 - entry.startTime;
       networkLogs.push(entry);
       pendingRequests.delete(params.requestId);
@@ -1039,13 +1048,33 @@ async function handleMessage(message: Message): Promise<unknown> {
     }
 
     case 'GENERATE_AI_CONTENT': {
-      const { steps } = message.payload as { steps: unknown[] };
+      const { steps, networkLogs, consoleLogs, screenshots, bugUrl, testData } = (message.payload || {}) as {
+        steps?: unknown[];
+        networkLogs?: unknown[];
+        consoleLogs?: unknown[];
+        screenshots?: Array<{ stepIndex: number; dataUrl: string }>;
+        bugUrl?: string;
+        testData?: string;
+      };
       const userKeys = await chrome.storage.local.get(['userOpenAiKey']);
       const payload = {
-        steps,
+        steps: steps || [],
+        networkLogs: networkLogs || [],
+        consoleLogs: consoleLogs || [],
+        screenshots: screenshots || [],
+        bugUrl,
+        testData,
         ...(userKeys.userOpenAiKey ? { userOpenAiKey: userKeys.userOpenAiKey } : {}),
       };
-      const result = await apiCall<{ title: string; description: string; suggestedSeverity: string }>(
+      const result = await apiCall<{
+        title: string;
+        description: string;
+        expectedResult?: string;
+        actualResult?: string;
+        suggestedSeverity?: string;
+        stepsSummary?: string;
+        recommendedMainImageIndex?: number | null;
+      }>(
         '/v1/ai/generate',
         { method: 'POST', body: JSON.stringify(payload) }
       );

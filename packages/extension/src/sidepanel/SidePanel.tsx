@@ -128,6 +128,7 @@ export const SidePanel: React.FC = () => {
   const [attachNetwork, setAttachNetwork] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isAiGenerated, setIsAiGenerated] = useState(false);
   const [copiedSteps, setCopiedSteps] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -648,11 +649,60 @@ export const SidePanel: React.FC = () => {
     if (events.length === 0) return;
     setIsGenerating(true);
     setError(null);
-    // Send only steps to the backend AI route.
-    // The OpenAI key lives in the backend .env — no key is needed in the extension.
+
+    // 1. Gather candidate screenshots for visual correlation (user starred + final defect frame)
+    const candidateShots: Array<{ stepIndex: number; dataUrl: string }> = [];
+    const shotIndices = Object.keys(screenshots || {}).map(Number).sort((a, b) => a - b);
+
+    // Prioritize user selected/starred screenshot if present
+    if (mainImageIndex !== null && screenshots[mainImageIndex]) {
+      const comp = await compressScreenshot(screenshots[mainImageIndex]);
+      if (comp) candidateShots.push({ stepIndex: mainImageIndex, dataUrl: comp });
+    }
+
+    // Include the final recorded step's screenshot as the failure outcome state
+    if (shotIndices.length > 0) {
+      const lastIdx = shotIndices[shotIndices.length - 1]!;
+      if (lastIdx !== mainImageIndex && screenshots[lastIdx]) {
+        const comp = await compressScreenshot(screenshots[lastIdx]);
+        if (comp) candidateShots.push({ stepIndex: lastIdx, dataUrl: comp });
+      }
+    }
+
+    // 2. Select relevant failed network logs for AI review (anomalies only, trimmed)
+    const failedNetLogs = (networkLogs || [])
+      .filter(l => l && (l.failed || (l.status && l.status >= 400) || l.errorText))
+      .slice(0, 5)
+      .map(l => ({
+        method: l.method,
+        url: (l.url || '').slice(0, 500),
+        status: l.status,
+        failed: l.failed,
+        errorText: l.errorText,
+        responseBody: l.responseBody ? l.responseBody.slice(0, 500) : undefined,
+      }));
+
+    // 3. Select relevant console errors for AI review
+    const errorConsLogs = (consoleLogs || [])
+      .filter(c => c && (c.type === 'error' || c.type === 'exception'))
+      .slice(0, 5)
+      .map(c => ({
+        type: c.type,
+        text: (c.text || '').slice(0, 300),
+        url: c.url,
+        line: c.line,
+      }));
+
     const res = await chrome.runtime.sendMessage({
       type: 'GENERATE_AI_CONTENT',
-      payload: { steps: events },
+      payload: {
+        steps: events,
+        networkLogs: failedNetLogs,
+        consoleLogs: errorConsLogs,
+        screenshots: candidateShots,
+        bugUrl,
+        testData,
+      },
     });
     setIsGenerating(false);
     if (res?.error) {
@@ -661,8 +711,14 @@ export const SidePanel: React.FC = () => {
     }
     if (res?.title) setTitle(res.title);
     if (res?.description) setDescription(res.description);
+    if (res?.expectedResult) setExpectedResult(res.expectedResult);
+    if (res?.actualResult) setActualResult(res.actualResult);
     if (res?.suggestedSeverity) setSeverity(res.suggestedSeverity);
     if (res?.stepsSummary) setTestSummary(res.stepsSummary);
+    if (typeof res?.recommendedMainImageIndex === 'number' && mainImageIndex === null) {
+      setMainImageIndex(res.recommendedMainImageIndex);
+    }
+    setIsAiGenerated(true);
   };
 
   // ── Submit ────────────────────────────────────────────────────────────────
@@ -715,7 +771,7 @@ export const SidePanel: React.FC = () => {
           pageTitle: (ev.pageTitle || '').slice(0, 999) || undefined,
         })),
         attachments: screenshotUrls,
-        networkLogs: attachNetwork ? (networkLogs || []).filter(l => l && l.failed).slice(0, 50).map(l => ({ ...l, url: (l.url || '').slice(0, 19999) })) : [],
+        networkLogs: attachNetwork ? (networkLogs || []).filter(l => l && (l.failed || (l.status && l.status >= 400) || l.errorText)).slice(0, 50).map(l => ({ ...l, url: (l.url || '').slice(0, 19999) })) : [],
         integrations,
         expectedResult: expectedResult.trim() || undefined,
         actualResult: actualResult.trim() || undefined,
@@ -761,7 +817,7 @@ export const SidePanel: React.FC = () => {
         actualResult,
         testSummary,
         steps: events,
-        networkLogs: attachNetwork ? networkLogs.filter(l => l.failed) : [],
+        networkLogs: attachNetwork ? (networkLogs || []).filter(l => l && (l.failed || (l.status && l.status >= 400) || l.errorText)) : [],
         consoleLogs,
         storageSnapshot,
         deviceFingerprint,
@@ -1039,7 +1095,7 @@ export const SidePanel: React.FC = () => {
       return `${i + 1}. Perform ${ev.actionType} on "${target}".`;
     }).join('\n'));
 
-    const logsHtml = networkLogs.filter(l => l.failed).map(l => `
+    const logsHtml = (networkLogs || []).filter(l => l && (l.failed || (l.status && l.status >= 400) || l.errorText)).map(l => `
       <details class="log-details failed">
         <summary class="log-summary">
           <div class="log-method">${l.method}</div>
@@ -2125,8 +2181,7 @@ export const SidePanel: React.FC = () => {
     `;
   };
 
-  const failedNet = networkLogs.filter(l => l.failed).length;
-  const filteredLogs = networkLogs.filter(l => showFailedOnly ? l.failed : true);
+  const failedNet = (networkLogs || []).filter(l => l && (l.failed || (l.status && l.status >= 400) || l.errorText)).length;
   
   const statusClass = (status?: number | null) => {
     if (!status) return 'unknown';
@@ -2920,9 +2975,28 @@ export const SidePanel: React.FC = () => {
 
             {/* AI generate */}
             <button type="button" className={`ai-btn${isGenerating ? ' loading' : ''}`} onClick={generateAI} disabled={isGenerating || events.length === 0}>
-              {isGenerating ? '⏳ Generating…' : '✨ Generate Title & Description with AI'}
+              {isGenerating ? '⏳ Synthesizing Defect Analysis…' : '✨ Generate Full Defect Report with AI'}
             </button>
-            <div className="settings-hint" style={{ marginTop: -6 }}>AI runs server-side — no key needed here. Requires OPENAI_API_KEY in backend .env.</div>
+            <div className="settings-hint" style={{ marginTop: -6 }}>Correlates captured steps, failure logs & key screenshot frame into a complete defect draft.</div>
+
+            {isAiGenerated && (
+              <div style={{
+                background: 'rgba(99, 102, 241, 0.12)',
+                border: '1px solid #6366f1',
+                borderRadius: '8px',
+                padding: '10px 12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                marginTop: '4px',
+                marginBottom: '4px',
+              }}>
+                <span style={{ fontSize: '15px' }}>✨</span>
+                <span style={{ fontSize: '11px', color: '#c7d2fe', lineHeight: 1.4 }}>
+                  <strong>AI Generated Defect Draft</strong> — Please review and edit the details below before submitting.
+                </span>
+              </div>
+            )}
 
             <div className="form-group">
               <label className="form-label">Title</label>
