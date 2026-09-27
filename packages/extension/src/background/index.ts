@@ -759,6 +759,301 @@ chrome.commands.onCommand.addListener(async (command) => {
   }
 });
 
+// ─── Direct BYOK AI Generators ─────────────────────────────────────────────
+
+async function generateDefectWithOpenAI(
+  apiKey: string,
+  payload: {
+    steps: any[];
+    networkLogs?: any[];
+    consoleLogs?: any[];
+    screenshots?: Array<{ stepIndex: number; dataUrl: string }>;
+    bugUrl?: string;
+    testData?: string;
+  }
+): Promise<{
+  title: string;
+  description: string;
+  expectedResult: string;
+  actualResult: string;
+  suggestedSeverity: string;
+  stepsSummary: string;
+  recommendedMainImageIndex: number | null;
+}> {
+  const steps = payload.steps || [];
+  const failedNetwork = (payload.networkLogs || []).filter(
+    (n: any) => n.failed || (n.status !== null && n.status !== undefined && n.status >= 400) || n.errorText
+  );
+  const errorConsole = (payload.consoleLogs || []).filter(
+    (c: any) => c.type === 'error' || c.type === 'exception'
+  );
+  const screenshots = payload.screenshots || [];
+
+  const stepsText = steps.map((s: any, i: number) => {
+    const action = s.actionType?.toUpperCase() ?? 'ACTION';
+    const label = s.elementLabel ?? 'Unknown';
+    const url = s.pageUrl ? ` (on ${s.pageUrl})` : '';
+    const value = s.valueMasked && s.valueMasked !== '[REDACTED]' ? ` = "${s.valueMasked}"` : '';
+    return `${i + 1}. ${action} on "${label}"${value}${url}`;
+  }).join('\n');
+
+  const netText = failedNetwork.slice(0, 5).map((n: any) => {
+    const respSnippet = n.responseBody ? ` | Response: ${n.responseBody.slice(0, 300)}` : '';
+    return `${n.method || 'GET'} ${n.url} -> Status: ${n.status ?? 'Failed'} (${n.errorText || 'Error'})${respSnippet}`;
+  }).join('\n');
+
+  const consoleText = errorConsole.slice(0, 5).map((c: any) => `[${(c.type || 'ERROR').toUpperCase()}] ${c.text || ''}`).join('\n');
+
+  const promptText = `You are a Principal QA and Software Reliability Engineer doing automated bug defect synthesis.
+Based on the recorded user actions, captured visual screenshots, and runtime logs, produce a complete and precise bug report.
+
+CONTEXT:
+Application URL: ${payload.bugUrl || 'N/A'}
+Test Data: ${payload.testData || 'None'}
+
+USER ACTIONS (${steps.length} total events):
+${stepsText}
+
+FAILED NETWORK REQUESTS:
+${netText || 'None recorded'}
+
+CONSOLE ERRORS & EXCEPTIONS:
+${consoleText || 'None recorded'}
+
+SCREENSHOTS ATTACHED:
+${screenshots.length > 0 ? `${screenshots.length} visual frame(s) provided below.` : 'No images attached.'}
+
+SYNTHESIS GOALS:
+1. TITLE: Short, specific, actionable bug title starting with a verb or clear issue statement (max 80 chars, e.g. "Unable to submit checkout form due to 400 Bad Request").
+2. DESCRIPTION: Concise 2-3 sentence overview explaining what the user was doing, what broke, and the impact.
+3. EXPECTED RESULT: Clear statement of what a normal user or specification expects to happen (e.g., "The order should be submitted successfully and redirect to the order confirmation page.").
+4. ACTUAL RESULT: Clear statement of what actually happened, referencing visual error states, banners, disabled components, or underlying 4xx/5xx network/console errors (e.g., "The submit button became disabled, a toast error 'Payment Failed' appeared, and network request to /api/checkout returned HTTP 400.").
+5. SUGGESTED SEVERITY: One of "P0", "P1", "P2", "P3", "P4" based on severity.
+6. STEPS SUMMARY: A clean, human-readable numbered list of 4 to 8 reproduction steps.
+7. RECOMMENDED MAIN IMAGE INDEX: The stepIndex integer of the screenshot that best illustrates the defect (or null if none).
+
+Output a single JSON object with exactly these fields:
+{
+  "title": string,
+  "description": string,
+  "expectedResult": string,
+  "actualResult": string,
+  "suggestedSeverity": "P0" | "P1" | "P2" | "P3" | "P4",
+  "stepsSummary": string,
+  "recommendedMainImageIndex": number | null
+}
+
+Return ONLY valid JSON, no markdown formatting.`;
+
+  const userMessageContent: any[] = [{ type: 'text', text: promptText }];
+
+  if (screenshots.length > 0) {
+    for (const shot of screenshots.slice(0, 2)) {
+      if (shot.dataUrl && shot.dataUrl.startsWith('data:image/')) {
+        userMessageContent.push({
+          type: 'image_url',
+          image_url: {
+            url: shot.dataUrl,
+            detail: 'low',
+          },
+        });
+      }
+    }
+  }
+
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey.trim()}`,
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: userMessageContent }],
+      temperature: 0.3,
+      max_tokens: 1000,
+    }),
+  });
+
+  if (!response.ok) {
+    let errMessage = `OpenAI API Error (HTTP ${response.status})`;
+    try {
+      const errJson = await response.json();
+      if (errJson?.error?.message) errMessage = errJson.error.message;
+    } catch {}
+    throw new Error(errMessage);
+  }
+
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content ?? '';
+  const jsonMatch = content.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error('OpenAI response did not contain valid JSON.');
+  }
+
+  const parsed = JSON.parse(jsonMatch[0]);
+  return {
+    title: parsed.title ?? '',
+    description: parsed.description ?? '',
+    expectedResult: parsed.expectedResult ?? '',
+    actualResult: parsed.actualResult ?? '',
+    suggestedSeverity: parsed.suggestedSeverity ?? 'P2',
+    stepsSummary: parsed.stepsSummary ?? '',
+    recommendedMainImageIndex: typeof parsed.recommendedMainImageIndex === 'number'
+      ? parsed.recommendedMainImageIndex
+      : (screenshots.length > 0 ? screenshots[screenshots.length - 1]?.stepIndex ?? null : null),
+  };
+}
+
+async function generateDefectWithClaude(
+  apiKey: string,
+  payload: {
+    steps: any[];
+    networkLogs?: any[];
+    consoleLogs?: any[];
+    screenshots?: Array<{ stepIndex: number; dataUrl: string }>;
+    bugUrl?: string;
+    testData?: string;
+  }
+): Promise<{
+  title: string;
+  description: string;
+  expectedResult: string;
+  actualResult: string;
+  suggestedSeverity: string;
+  stepsSummary: string;
+  recommendedMainImageIndex: number | null;
+}> {
+  const steps = payload.steps || [];
+  const failedNetwork = (payload.networkLogs || []).filter(
+    (n: any) => n.failed || (n.status !== null && n.status !== undefined && n.status >= 400) || n.errorText
+  );
+  const errorConsole = (payload.consoleLogs || []).filter(
+    (c: any) => c.type === 'error' || c.type === 'exception'
+  );
+  const screenshots = payload.screenshots || [];
+
+  const stepsText = steps.map((s: any, i: number) => {
+    const action = s.actionType?.toUpperCase() ?? 'ACTION';
+    const label = s.elementLabel ?? 'Unknown';
+    const url = s.pageUrl ? ` (on ${s.pageUrl})` : '';
+    const value = s.valueMasked && s.valueMasked !== '[REDACTED]' ? ` = "${s.valueMasked}"` : '';
+    return `${i + 1}. ${action} on "${label}"${value}${url}`;
+  }).join('\n');
+
+  const netText = failedNetwork.slice(0, 5).map((n: any) => {
+    const respSnippet = n.responseBody ? ` | Response: ${n.responseBody.slice(0, 300)}` : '';
+    return `${n.method || 'GET'} ${n.url} -> Status: ${n.status ?? 'Failed'} (${n.errorText || 'Error'})${respSnippet}`;
+  }).join('\n');
+
+  const consoleText = errorConsole.slice(0, 5).map((c: any) => `[${(c.type || 'ERROR').toUpperCase()}] ${c.text || ''}`).join('\n');
+
+  const promptText = `You are a Principal QA and Software Reliability Engineer doing automated bug defect synthesis.
+Based on the recorded user actions, captured visual screenshots, and runtime logs, produce a complete and precise bug report.
+
+CONTEXT:
+Application URL: ${payload.bugUrl || 'N/A'}
+Test Data: ${payload.testData || 'None'}
+
+USER ACTIONS (${steps.length} total events):
+${stepsText}
+
+FAILED NETWORK REQUESTS:
+${netText || 'None recorded'}
+
+CONSOLE ERRORS & EXCEPTIONS:
+${consoleText || 'None recorded'}
+
+SCREENSHOTS ATTACHED:
+${screenshots.length > 0 ? `${screenshots.length} visual frame(s) provided below.` : 'No images attached.'}
+
+SYNTHESIS GOALS:
+1. TITLE: Short, specific, actionable bug title starting with a verb or clear issue statement (max 80 chars, e.g. "Unable to submit checkout form due to 400 Bad Request").
+2. DESCRIPTION: Concise 2-3 sentence overview explaining what the user was doing, what broke, and the impact.
+3. EXPECTED RESULT: Clear statement of what a normal user or specification expects to happen (e.g., "The order should be submitted successfully and redirect to the order confirmation page.").
+4. ACTUAL RESULT: Clear statement of what actually happened, referencing visual error states, banners, disabled components, or underlying 4xx/5xx network/console errors (e.g., "The submit button became disabled, a toast error 'Payment Failed' appeared, and network request to /api/checkout returned HTTP 400.").
+5. SUGGESTED SEVERITY: One of "P0", "P1", "P2", "P3", "P4" based on severity.
+6. STEPS SUMMARY: A clean, human-readable numbered list of 4 to 8 reproduction steps.
+7. RECOMMENDED MAIN IMAGE INDEX: The stepIndex integer of the screenshot that best illustrates the defect (or null if none).
+
+Output a single JSON object with exactly these fields:
+{
+  "title": string,
+  "description": string,
+  "expectedResult": string,
+  "actualResult": string,
+  "suggestedSeverity": "P0" | "P1" | "P2" | "P3" | "P4",
+  "stepsSummary": string,
+  "recommendedMainImageIndex": number | null
+}
+
+Return ONLY valid JSON, no markdown formatting.`;
+
+  const content: any[] = [{ type: 'text', text: promptText }];
+
+  if (screenshots.length > 0) {
+    for (const shot of screenshots.slice(0, 2)) {
+      if (shot.dataUrl && shot.dataUrl.startsWith('data:image/')) {
+        const matches = shot.dataUrl.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
+        if (matches) {
+          content.push({
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: matches[1] || 'image/jpeg',
+              data: matches[2],
+            },
+          });
+        }
+      }
+    }
+  }
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey.trim(),
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model: 'claude-3-5-haiku-20241022',
+      max_tokens: 1000,
+      messages: [{ role: 'user', content }],
+    }),
+  });
+
+  if (!response.ok) {
+    let errMessage = `Claude API Error (HTTP ${response.status})`;
+    try {
+      const errJson = await response.json();
+      if (errJson?.error?.message) errMessage = errJson.error.message;
+    } catch {}
+    throw new Error(errMessage);
+  }
+
+  const data = await response.json();
+  const textContent = data.content?.[0]?.text ?? '';
+  const jsonMatch = textContent.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error('Claude response did not contain valid JSON.');
+  }
+
+  const parsed = JSON.parse(jsonMatch[0]);
+  return {
+    title: parsed.title ?? '',
+    description: parsed.description ?? '',
+    expectedResult: parsed.expectedResult ?? '',
+    actualResult: parsed.actualResult ?? '',
+    suggestedSeverity: parsed.suggestedSeverity ?? 'P2',
+    stepsSummary: parsed.stepsSummary ?? '',
+    recommendedMainImageIndex: typeof parsed.recommendedMainImageIndex === 'number'
+      ? parsed.recommendedMainImageIndex
+      : (screenshots.length > 0 ? screenshots[screenshots.length - 1]?.stepIndex ?? null : null),
+  };
+}
+
 // ─── Message handler ──────────────────────────────────────────────────────────
 
 async function isUserAuthenticated(): Promise<boolean> {
@@ -1056,7 +1351,47 @@ async function handleMessage(message: Message): Promise<unknown> {
         bugUrl?: string;
         testData?: string;
       };
-      const userKeys = await chrome.storage.local.get(['userOpenAiKey']);
+      const userKeys = await chrome.storage.local.get(['userOpenAiKey', 'userClaudeKey']);
+      const openAiKey = (userKeys.userOpenAiKey as string)?.trim();
+      const claudeKey = (userKeys.userClaudeKey as string)?.trim();
+
+      // 1. Direct BYOK with OpenAI (Runs immediately from extension without backend delay/auth requirements)
+      if (openAiKey) {
+        try {
+          const result = await generateDefectWithOpenAI(openAiKey, {
+            steps: (steps as any[]) || [],
+            networkLogs: (networkLogs as any[]) || [],
+            consoleLogs: (consoleLogs as any[]) || [],
+            screenshots: screenshots || [],
+            bugUrl,
+            testData,
+          });
+          return result;
+        } catch (err: any) {
+          console.warn('[BYOK OpenAI] Direct API call error:', err?.message);
+          return { error: `OpenAI BYOK Error: ${err.message}` };
+        }
+      }
+
+      // 2. Direct BYOK with Claude
+      if (claudeKey) {
+        try {
+          const result = await generateDefectWithClaude(claudeKey, {
+            steps: (steps as any[]) || [],
+            networkLogs: (networkLogs as any[]) || [],
+            consoleLogs: (consoleLogs as any[]) || [],
+            screenshots: screenshots || [],
+            bugUrl,
+            testData,
+          });
+          return result;
+        } catch (err: any) {
+          console.warn('[BYOK Claude] Direct API call error:', err?.message);
+          return { error: `Claude BYOK Error: ${err.message}` };
+        }
+      }
+
+      // 3. Fallback: Call backend AI route when no personal BYOK key is configured
       const payload = {
         steps: steps || [],
         networkLogs: networkLogs || [],
@@ -1064,7 +1399,6 @@ async function handleMessage(message: Message): Promise<unknown> {
         screenshots: screenshots || [],
         bugUrl,
         testData,
-        ...(userKeys.userOpenAiKey ? { userOpenAiKey: userKeys.userOpenAiKey } : {}),
       };
       const result = await apiCall<{
         title: string;

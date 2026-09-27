@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Bug Lens v2.0",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "Enterprise bug capture and reporting — record, annotate, and submit bugs in seconds.",
   "permissions": [
     "storage",
