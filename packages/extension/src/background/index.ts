@@ -162,7 +162,7 @@ function ensureStateLoaded(): Promise<void> {
   return stateLoadedPromise;
 }
 
-function broadcastStateChange(): void {
+async function broadcastStateChange(): Promise<void> {
   chrome.runtime.sendMessage({
     type: 'RECORDING_STATE_CHANGED',
     payload: {
@@ -172,6 +172,23 @@ function broadcastStateChange(): void {
       isAuthenticated: !!accessToken,
     },
   }).catch(() => {});
+
+  // Broadcast to all tabs so in-page recording widget stays in sync across pages
+  try {
+    const tabs = await chrome.tabs.query({});
+    for (const tab of tabs) {
+      if (tab.id) {
+        chrome.tabs.sendMessage(tab.id, {
+          type: 'RECORDING_STATE_CHANGED',
+          payload: {
+            sessionId: currentSessionId,
+            isPaused,
+            stepCount,
+          },
+        }).catch(() => {});
+      }
+    }
+  } catch {}
 }
 
 async function saveSessionId(id: string | null): Promise<void> {
@@ -225,7 +242,8 @@ async function saveToken(token: string, refreshToken?: string): Promise<void> {
 async function clearTokens(): Promise<void> {
   accessToken = null;
   await chrome.storage.session.clear();
-  await chrome.storage.local.remove(['accessToken', 'refreshToken']);
+  await chrome.storage.local.remove(['accessToken', 'refreshToken', 'user']);
+  broadcastStateChange();
 }
 
 let refreshPromise: Promise<string | null> | null = null;
@@ -249,7 +267,10 @@ async function refreshAccessToken(): Promise<string | null> {
       });
 
       if (!response.ok) {
-        // Do not clear tokens on transient network or navigation errors.
+        if (response.status === 401 || response.status === 403) {
+          console.warn('[Background] Refresh token expired (HTTP ' + response.status + '). Clearing session.');
+          await clearTokens();
+        }
         return null;
       }
 
@@ -360,7 +381,10 @@ async function apiCall<T>(
 
   if (response.status === 401) {
     const newToken = await refreshAccessToken();
-    if (!newToken) return { ok: false, status: 401 };
+    if (!newToken) {
+      await clearTokens();
+      return { ok: false, status: 401 };
+    }
 
     const retry = await fetch(`${API_BASE}${endpoint}`, {
       ...options,
@@ -371,7 +395,12 @@ async function apiCall<T>(
       },
     });
 
-    if (!retry.ok) return { ok: false, status: retry.status };
+    if (!retry.ok) {
+      if (retry.status === 401 || retry.status === 403) {
+        await clearTokens();
+      }
+      return { ok: false, status: retry.status };
+    }
     return { data: await retry.json() as T, ok: true };
   }
 
@@ -437,9 +466,29 @@ async function captureScreenshot(tabId?: number, overrideStepIndex?: number): Pr
       quality: 85,
     });
 
-    const stepIndex = overrideStepIndex ?? (sessionEvents.length > 0 ? sessionEvents.length - 1 : 0);
-    sessionScreenshots[stepIndex] = dataUrl;
-    await chrome.storage.local.set({ sessionScreenshots });
+    let stepIndex = overrideStepIndex;
+    if (stepIndex === undefined) {
+      // Manual capture: create a new manual screenshot step so it is counted and preserved!
+      const manualEvent = {
+        eventId: crypto.randomUUID(),
+        actionType: 'SCREENSHOT',
+        elementLabel: 'Manual Screenshot',
+        cssSelector: '',
+        valueMasked: '',
+        timestamp: new Date().toISOString(),
+        pageUrl: tab.url || '',
+        pageTitle: tab.title || '',
+      };
+      sessionEvents.push(manualEvent);
+      stepIndex = sessionEvents.length - 1;
+      sessionScreenshots[stepIndex] = dataUrl;
+      await chrome.storage.local.set({ sessionEvents, sessionScreenshots });
+      await incrementStepCount(1);
+    } else {
+      // Recapture for existing step
+      sessionScreenshots[stepIndex] = dataUrl;
+      await chrome.storage.local.set({ sessionScreenshots });
+    }
 
     // Notify side panel of new screenshot
     chrome.runtime.sendMessage({
@@ -570,7 +619,23 @@ async function processQueue(): Promise<void> {
 // ─── Network Log Capture (chrome.debugger) ───────────────────────────────────
 
 async function attachDebugger(tabId: number): Promise<void> {
-  if (debuggerTabId === tabId) return;
+  if (debuggerTabId === tabId) {
+    try {
+      await chrome.debugger.sendCommand({ tabId }, 'Network.enable', {});
+      await chrome.debugger.sendCommand({ tabId }, 'Runtime.enable', {});
+      return;
+    } catch {
+      debuggerTabId = null;
+    }
+  }
+
+  // Detach from previous tab if any
+  if (debuggerTabId !== null && debuggerTabId !== tabId) {
+    try {
+      await chrome.debugger.detach({ tabId: debuggerTabId });
+    } catch {}
+    debuggerTabId = null;
+  }
 
   try {
     await chrome.debugger.attach({ tabId }, '1.3');
@@ -707,6 +772,17 @@ chrome.debugger.onEvent.addListener((source, method, params: any) => {
   }
 });
 
+// Listen for debugger detach events (e.g. cross-origin navigation, devtools opened)
+chrome.debugger.onDetach.addListener((source, reason) => {
+  console.warn(`[BugLens] Debugger detached from tab ${source.tabId}: ${reason}`);
+  if (debuggerTabId === source.tabId) {
+    debuggerTabId = null;
+    if (currentSessionId && source.tabId) {
+      attachDebugger(source.tabId).catch(() => {});
+    }
+  }
+});
+
 // Auto-attach debugger when user switches active tabs or navigates to a new URL while recording
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
   if (currentSessionId) {
@@ -715,8 +791,41 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
 });
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-  if (currentSessionId && changeInfo.status === 'complete' && tab.active) {
+  if (!currentSessionId) return;
+
+  // On page navigation or reload:
+  if (tab.active && (changeInfo.status === 'loading' || changeInfo.status === 'complete')) {
     await attachDebugger(tabId);
+  }
+
+  if (changeInfo.status === 'complete' && tab.url) {
+    // Sync state to newly loaded page
+    if (!tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://') && !tab.url.startsWith('edge://')) {
+      chrome.tabs.sendMessage(tabId, {
+        type: 'RECORDING_STATE_CHANGED',
+        payload: {
+          sessionId: currentSessionId,
+          isPaused,
+          stepCount,
+        },
+      }).catch(async () => {
+        // Fallback dynamic injection if content script didn't start
+        try {
+          await chrome.scripting.executeScript({
+            target: { tabId },
+            files: ['content.js'],
+          });
+          chrome.tabs.sendMessage(tabId, {
+            type: 'RECORDING_STATE_CHANGED',
+            payload: {
+              sessionId: currentSessionId,
+              isPaused,
+              stepCount,
+            },
+          }).catch(() => {});
+        } catch {}
+      });
+    }
   }
 });
 
@@ -1056,24 +1165,80 @@ Return ONLY valid JSON, no markdown formatting.`;
 
 // ─── Message handler ──────────────────────────────────────────────────────────
 
+function isJwtExpired(token: string): boolean {
+  try {
+    const parts = token.split('.');
+    if (parts.length < 2) return true;
+    const payload = JSON.parse(atob(parts[1]));
+    if (!payload.exp) return false;
+    return payload.exp * 1000 < Date.now() + 30000;
+  } catch {
+    return false;
+  }
+}
+
 async function isUserAuthenticated(): Promise<boolean> {
   await ensureStateLoaded();
-  if (accessToken) return true;
-  const stored = await chrome.storage.local.get(['accessToken', 'refreshToken', 'user']);
-  if (stored['accessToken'] || stored['refreshToken'] || stored['user']) {
+  const stored = await chrome.storage.local.get(['accessToken', 'refreshToken']);
+  const token = accessToken || (stored['accessToken'] as string | undefined);
+  const refreshToken = stored['refreshToken'] as string | undefined;
+
+  if (!token && !refreshToken) {
+    return false;
+  }
+
+  // If access token is valid and not expired
+  if (token && !isJwtExpired(token)) {
     return true;
   }
+
+  // Token is missing or expired, attempt refresh using refreshToken
+  if (refreshToken) {
+    const refreshed = await refreshAccessToken();
+    return !!refreshed;
+  }
+
   return false;
 }
 
-chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) => {
-  handleMessage(message).then(sendResponse).catch((err: Error) => {
+chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) => {
+  if (message.type === 'OPEN_SIDE_PANEL' || message.type === 'FINISH_AND_OPEN_SIDE_PANEL') {
+    const tabId = sender?.tab?.id;
+    const windowId = sender?.tab?.windowId;
+
+    const openFallbackTab = () => {
+      chrome.tabs.create({ url: chrome.runtime.getURL('src/sidepanel/index.html') }).catch(() => {});
+    };
+
+    if (tabId !== undefined) {
+      chrome.sidePanel.open({ tabId }).catch((tabErr) => {
+        console.warn('[Background] sidePanel.open({ tabId }) failed:', tabErr?.message);
+        if (windowId !== undefined) {
+          chrome.sidePanel.open({ windowId }).catch((winErr) => {
+            console.warn('[Background] sidePanel.open({ windowId }) failed:', winErr?.message);
+            openFallbackTab();
+          });
+        } else {
+          openFallbackTab();
+        }
+      });
+    } else if (windowId !== undefined) {
+      chrome.sidePanel.open({ windowId }).catch((winErr) => {
+        console.warn('[Background] sidePanel.open({ windowId }) failed:', winErr?.message);
+        openFallbackTab();
+      });
+    } else {
+      openFallbackTab();
+    }
+  }
+
+  handleMessage(message, sender).then(sendResponse).catch((err: Error) => {
     sendResponse({ error: err.message });
   });
   return true;
 });
 
-async function handleMessage(message: Message): Promise<unknown> {
+async function handleMessage(message: Message, sender?: chrome.runtime.MessageSender): Promise<unknown> {
   await ensureStateLoaded();
   switch (message.type) {
     case 'LOGIN':
@@ -1108,16 +1273,28 @@ async function handleMessage(message: Message): Promise<unknown> {
 
         return { sessionId: currentSessionId };
       }
+
+      if (result.status === 401 || result.status === 403) {
+        await clearTokens();
+        return {
+          error: 'Your session has expired. Please sign in again.',
+          status: result.status,
+          authExpired: true,
+        };
+      }
+
       return { error: 'Failed to start session', status: result.status };
     }
 
+    case 'FINISH_AND_OPEN_SIDE_PANEL':
     case 'END_SESSION': {
-      if (!currentSessionId) return { error: 'No active session' };
-      const status = (message.payload as { status: string }).status;
-      await apiCall(`/v1/sessions/${currentSessionId}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status }),
-      });
+      if (currentSessionId) {
+        const status = (message.payload as { status?: string })?.status ?? 'COMPLETED';
+        await apiCall(`/v1/sessions/${currentSessionId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ status }),
+        }).catch(() => {});
+      }
 
       // Persist final network logs
       await chrome.storage.local.set({ networkLogs });
@@ -1174,6 +1351,7 @@ async function handleMessage(message: Message): Promise<unknown> {
     case 'EVENTS_BATCH': {
       if (isPaused || !currentSessionId) return { queued: 0 };
       const events = message.payload as unknown[];
+      if (!Array.isArray(events) || events.length === 0) return { queued: 0 };
 
       sessionEvents.push(...events);
 
@@ -1187,24 +1365,21 @@ async function handleMessage(message: Message): Promise<unknown> {
         }
       }
       await chrome.storage.local.set({ sessionEvents, sessionScreenshots });
+      await incrementStepCount(events.length); // Immediately increment stepCount and broadcast to all tabs!
 
-      try {
-        const result = await apiCall(`/v1/sessions/${currentSessionId}/events`, {
-          method: 'POST',
-          body: JSON.stringify({ events }),
-        });
+      // Non-blocking background sync with backend server
+      apiCall(`/v1/sessions/${currentSessionId}/events`, {
+        method: 'POST',
+        body: JSON.stringify({ events }),
+      }).then((result) => {
         if (!result.ok) {
-          await enqueue(`/v1/sessions/${currentSessionId}/events`, 'POST', { events });
-          await incrementStepCount(events.length);
-          return { queued: events.length };
+          enqueue(`/v1/sessions/${currentSessionId}/events`, 'POST', { events }).catch(() => {});
         }
-        await incrementStepCount(events.length);
-        return { sent: events.length };
-      } catch {
-        await enqueue(`/v1/sessions/${currentSessionId}/events`, 'POST', { events });
-        await incrementStepCount(events.length);
-        return { queued: events.length };
-      }
+      }).catch(() => {
+        enqueue(`/v1/sessions/${currentSessionId}/events`, 'POST', { events }).catch(() => {});
+      });
+
+      return { sent: events.length };
     }
 
     case 'CAPTURE_STEP_SCREENSHOT': {
@@ -1473,9 +1648,21 @@ async function handleMessage(message: Message): Promise<unknown> {
     }
 
     case 'OPEN_SIDE_PANEL': {
-      const win = await chrome.windows.getCurrent();
-      if (win.id) {
-        await chrome.sidePanel.open({ windowId: win.id });
+      try {
+        let winId = sender?.tab?.windowId;
+        if (!winId) {
+          const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+          winId = tab?.windowId;
+        }
+        if (!winId) {
+          const win = await chrome.windows.getCurrent();
+          winId = win?.id;
+        }
+        if (winId) {
+          await chrome.sidePanel.open({ windowId: winId });
+        }
+      } catch (err: any) {
+        console.warn('[Background] OPEN_SIDE_PANEL error:', err?.message);
       }
       return { success: true };
     }

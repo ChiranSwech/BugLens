@@ -58,8 +58,10 @@ function App() {
       if (res.userAzureProject) setUserAzureProject(res.userAzureProject);
       if (res.userAzurePat) setUserAzurePat(res.userAzurePat);
 
-      if (res.accessToken || res.refreshToken || res.user) {
+      if (res.accessToken || res.refreshToken) {
         setIsAuthenticated(true);
+      } else {
+        setIsAuthenticated(false);
       }
       if (res.currentSessionId) {
         setRecordingState(res.isPaused ? 'paused' : 'recording');
@@ -87,6 +89,9 @@ function App() {
         const p = message.payload;
         if (typeof p.isAuthenticated === 'boolean') {
           setIsAuthenticated(p.isAuthenticated);
+          if (!p.isAuthenticated) {
+            setRecordingState('idle');
+          }
         }
         setRecordingState(p.sessionId ? (p.isPaused ? 'paused' : 'recording') : 'idle');
         if (typeof p.stepCount === 'number') {
@@ -184,7 +189,12 @@ function App() {
           }
         }
       } else {
-        setError(sessionResponse?.error ?? 'Failed to start session. Please check your connection.');
+        if (sessionResponse?.status === 401 || sessionResponse?.status === 403 || sessionResponse?.authExpired) {
+          setIsAuthenticated(false);
+          setError('Your session has expired. Please sign in with Google to continue.');
+        } else {
+          setError(sessionResponse?.error ?? 'Failed to start session. Please check your connection.');
+        }
       }
     } catch (err) {
       console.error('[Popup] START_SESSION error:', err);
@@ -540,6 +550,20 @@ function App() {
             >
               Save Configuration
             </button>
+            {isAuthenticated && (
+              <button
+                className="btn"
+                onClick={async () => {
+                  await chrome.runtime.sendMessage({ type: 'LOGOUT' });
+                  setIsAuthenticated(false);
+                  setShowSettings(false);
+                }}
+                style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#f87171', marginLeft: 'auto' }}
+                title="Sign out of BugLens"
+              >
+                Sign Out
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -564,6 +588,12 @@ function App() {
           <BugLensLogo size={52} showText={true} showSubtitle={true} />
           <p style={{ marginTop: '6px' }}>Enterprise Bug Capture</p>
         </div>
+        {error && (
+          <div className="error-banner" style={{ margin: '0 0 14px 0', fontSize: '11px', textAlign: 'left' }}>
+            <span>{error}</span>
+            <button className="error-close" onClick={() => setError(null)}>×</button>
+          </div>
+        )}
         <button className="btn btn-primary btn-google" onClick={handleLogin} id="login-btn">
           <svg className="google-icon" viewBox="0 0 24 24" width="18" height="18">
             <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
